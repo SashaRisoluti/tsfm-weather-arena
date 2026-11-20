@@ -1,0 +1,44 @@
+# Python and tooling
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Environment and credentials
+.env
+.env.*
+!.env.example
+*service-account*.json
+*credentials*.json
+
+# Data
+data/
+*.zarr/
+*.nc
+*.grib
+*.grib2
+*.parquet
+
+# Model weights and adapters
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+adapters/
+
+# Experiment tracking and run outputs
+mlruns/
+outputs/
+multirun/
+results/*
+!results/summary/
+
+# Web build output
+node_modules/
+web/dist/
