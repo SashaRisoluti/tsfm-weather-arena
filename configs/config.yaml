@@ -1,0 +1,4 @@
+defaults:
+  - region: alps
+  - data
+  - _self_

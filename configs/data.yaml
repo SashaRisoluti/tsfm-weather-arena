@@ -1,0 +1,70 @@
+# @package data
+
+# Common grid of the precipitation and satellite products, in degrees.
+grid_step: 0.1
+# Relative to the project root. Never committed.
+cache_dir: data/cache
+
+# Precipitation target. Public bucket gs://pardig_1 (CC BY 4.0), read over HTTPS.
+# Near-real-time product only, so train and test share one product version.
+pardig:
+  archive_url: https://storage.googleapis.com/pardig_1/NRT/zarr_rechunked_as_timeseries/2016_to_2025/predictions.zarr
+  frame_url: "https://storage.googleapis.com/pardig_1/NRT/zarr/2026_to_present/{time:%Y%m%dT%H%M%S}/predictions.zarr"
+  variable: precipitation
+  frames_start: "2026-01-01T00:00"
+  step_minutes: 15
+  # Source values are instantaneous rates in m h**-1.
+  rate_to_mm_per_hour: 1000.0
+
+# Geostationary mosaic. Public bucket gs://satweave_1 (CC BY 4.0).
+# The 2016-2025 store has 30-minute steps, later frames are hourly; hourly is
+# used throughout so that train and test covariates share one cadence.
+satweave:
+  archive_url: https://storage.googleapis.com/satweave_1/zarr/2016_to_2025/mosaic.zarr
+  frame_url: "https://storage.googleapis.com/satweave_1/zarr/2026_to_present/{time:%Y%m%dT%H%M%S}/mosaic.zarr"
+  frames_start: "2026-01-01T00:00"
+  step_minutes: 60
+  # Infrared window (11.2 um) and upper-level water vapour (6.2 um); both are
+  # carried by Meteosat, unlike the 10.4 um band.
+  bands: [mosaic_11200_nm, mosaic_6200_nm]
+
+# ECMWF open data, AIFS ensemble (CC BY 4.0). Mirrors are tried in order.
+aifs_ens:
+  base_urls:
+    - https://storage.googleapis.com/ecmwf-open-data
+    - https://ecmwf-forecasts.s3.eu-central-1.amazonaws.com
+  grid_step: 0.25
+  first_init: "2025-07-01T06:00"
+  init_hours: [0, 12]
+  steps: [6, 12, 18, 24, 30, 36, 42, 48, 54, 60]
+  # Accumulated from the start of the run, in mm. cp exists from model version 2.
+  params: [tp, cp]
+  members: 51
+  # A run is treated as usable 12 h after its nominal time (documented
+  # dissemination is about 7 h 40 min; observed outliers reach 10.5 h).
+  availability_lag_hours: 12
+
+# Copernicus DEM GLO-90 through the Open-Meteo elevation API.
+elevation:
+  url: https://api.open-meteo.com/v1/elevation
+  subsamples: 3
+  batch_size: 100
+
+strata:
+  coast_distance_deg: 0.3
+  lowland_max_m: 300.0
+  foothill_max_m: 1000.0
+
+# Issue-time windows, inclusive dates in UTC. Samples whose targets would reach
+# into the next window are dropped (embargo).
+splits:
+  embargo_hours: 48
+  tsfm:
+    train: ["2016-01-01", "2024-12-31"]
+    validation: ["2025-01-01", "2025-12-31"]
+  # Limited by the forecast archive, which starts in July 2025.
+  hybrid:
+    train: ["2025-07-02", "2026-03-31"]
+    validation: ["2026-04-01", "2026-05-12"]
+  # Common to all models; forecast model version 2 throughout.
+  test: ["2026-05-13", "2026-11-15"]
