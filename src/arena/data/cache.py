@@ -5,6 +5,7 @@ Layout under ``<cache_dir>/<region>/``::
     pardig/archive.zarr             2016-2025, cut from the time-series store
     pardig/frames/YYYYMMDD.zarr     one day of 15-minute frames
     satweave/YYYYMMDD.zarr          one day of hourly frames
+    aifs_ens/YYYYMMDDHH.zarr        one forecast run
 
 Every store is written to a temporary folder and then renamed, so a store
 that exists is complete. Precipitation is stored in mm/h.
@@ -16,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import xarray as xr
 from omegaconf import DictConfig
 
@@ -35,7 +37,7 @@ def cache_root(cfg: DictConfig) -> Path:
     return base / str(cfg.region.name)
 
 
-def _write_atomic(ds: xr.Dataset, path: Path) -> None:
+def write_atomic(ds: xr.Dataset, path: Path) -> None:
     tmp = path.with_name(path.name + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -47,12 +49,12 @@ def _write_atomic(ds: xr.Dataset, path: Path) -> None:
     tmp.replace(path)
 
 
-def _concat_time(parts: list[xr.Dataset]) -> xr.Dataset:
+def _concat(parts: list[xr.Dataset], dim: str = "time") -> xr.Dataset:
     if len(parts) == 1:
         return parts[0]
     return xr.concat(
         parts,
-        dim="time",
+        dim=dim,
         data_vars="all",
         coords="minimal",
         compat="override",
@@ -76,7 +78,7 @@ def cache_pardig_archive(cfg: DictConfig) -> Path:
         # One whole series per 0.5 degree tile, as in the source, wherever
         # the box starts relative to the source tiles.
         sub = sub.drop_encoding().chunk({"time": -1, "latitude": 5, "longitude": 5})
-        _write_atomic(sub, path)
+        write_atomic(sub, path)
     log.info("pardig archive cached")
     return path
 
@@ -123,7 +125,7 @@ def _fetch_day(
         )
     if not parts:
         return None, len(times)
-    data = _concat_time(parts)
+    data = _concat(parts)
     # A step whose chunk was never uploaded reads back as NaN everywhere.
     empty = xr.concat(
         [v.isnull().all(("latitude", "longitude")) for v in data.data_vars.values()],
@@ -167,11 +169,23 @@ def cache_days(
                     factor = cfg.data.pardig.rate_to_mm_per_hour
                     data[name] = pardig.to_mm_per_hour(data[name], factor)
                 data.attrs = {"missing_frames": missing}
-                _write_atomic(data.drop_encoding(), path)
+                write_atomic(data.drop_encoding(), path)
                 written.append(path)
                 log.info("%s %s cached", source, day)
         day += timedelta(days=1)
     return written
+
+
+def _open_run(cfg: DictConfig, store: Path) -> xr.Dataset:
+    """One cached forecast run, shaped for stacking along ``init_time``."""
+    run = xr.open_zarr(store, consolidated=False, chunks={})
+    template = run[next(iter(run.data_vars))]
+    for param in cfg.data.aifs_ens.params:
+        if param not in run:
+            # Not produced by the model version of this run.
+            run[param] = xr.full_like(template, np.nan)
+    run["model_version"] = ((), run.attrs["model_version"])
+    return run.expand_dims("init_time")
 
 
 def open_cached(cfg: DictConfig, source: str) -> xr.Dataset:
@@ -185,6 +199,6 @@ def open_cached(cfg: DictConfig, source: str) -> xr.Dataset:
         stores = sorted(root.glob("*.zarr"))
     if not stores:
         raise FileNotFoundError(f"nothing cached for {source} in {cfg.region.name}")
-    return _concat_time(
-        [xr.open_zarr(s, consolidated=False, chunks={}) for s in stores]
-    )
+    if source == "aifs_ens":
+        return _concat([_open_run(cfg, s) for s in stores], dim="init_time")
+    return _concat([xr.open_zarr(s, consolidated=False, chunks={}) for s in stores])
