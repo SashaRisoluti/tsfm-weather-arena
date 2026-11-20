@@ -5,8 +5,8 @@ controlled comparison between three families of models:
 
 1. **Time-series foundation models**, which see only the history of a point
    plus covariates.
-2. **An open AI weather model**, which forecasts the global state of the
-   atmosphere.
+2. **An open-source AI weather model**, which forecasts the global state of
+   the atmosphere.
 3. **A hybrid**, in which a time-series foundation model receives the weather
    model's forecasts as known-future covariates and corrects them locally.
 
