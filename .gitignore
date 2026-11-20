@@ -3,8 +3,8 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
-dist/
-build/
+/dist/
+/build/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
@@ -16,9 +16,15 @@ build/
 !.env.example
 *service-account*.json
 *credentials*.json
+client_secret*.json
+kaggle.json
+.netrc
+.cdsapirc
+.ecmwfapirc
+*.pem
 
-# Data
-data/
+# Data (top-level directory only; packages named data/ stay tracked)
+/data/
 *.zarr/
 *.nc
 *.grib
@@ -30,7 +36,7 @@ data/
 *.pth
 *.ckpt
 *.safetensors
-adapters/
+/adapters/
 
 # Experiment tracking and run outputs
 mlruns/
