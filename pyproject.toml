@@ -32,6 +32,10 @@ module-name = "arena"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# Plot calls read better on one line.
+"notebooks/*.ipynb" = ["E501"]
+
 [tool.mypy]
 python_version = "3.11"
 files = ["src"]
