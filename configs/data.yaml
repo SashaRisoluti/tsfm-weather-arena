@@ -11,6 +11,8 @@ pardig:
   archive_url: https://storage.googleapis.com/pardig_1/NRT/zarr_rechunked_as_timeseries/2016_to_2025/predictions.zarr
   frame_url: "https://storage.googleapis.com/pardig_1/NRT/zarr/2026_to_present/{time:%Y%m%dT%H%M%S}/predictions.zarr"
   variable: precipitation
+  # Empty object written next to a frame once its upload is complete.
+  marker: success
   frames_start: "2026-01-01T00:00"
   step_minutes: 15
   # Source values are instantaneous rates in m h**-1.
@@ -22,6 +24,7 @@ pardig:
 satweave:
   archive_url: https://storage.googleapis.com/satweave_1/zarr/2016_to_2025/mosaic.zarr
   frame_url: "https://storage.googleapis.com/satweave_1/zarr/2026_to_present/{time:%Y%m%dT%H%M%S}/mosaic.zarr"
+  marker: success
   frames_start: "2026-01-01T00:00"
   step_minutes: 60
   # Infrared window (11.2 um) and upper-level water vapour (6.2 um); both are
