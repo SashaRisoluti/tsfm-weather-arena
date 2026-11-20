@@ -10,6 +10,8 @@ from omegaconf import DictConfig, OmegaConf
 
 from arena.config import load_config
 
+from . import grib_mirror
+
 # A patch of the 0.1 degree grid that contains the Alps box with a margin.
 LAT = np.round(40.0 + 0.1 * np.arange(101), 6)
 LON = np.round(0.1 * np.arange(201), 6)
@@ -101,12 +103,20 @@ def remote(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return root
 
 
+@pytest.fixture(scope="session")
+def mirrors(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
+    return grib_mirror.build_mirrors(tmp_path_factory.mktemp("mirrors"))
+
+
 @pytest.fixture
-def synthetic(remote: Path, tmp_path: Path) -> DictConfig:
+def synthetic(remote: Path, mirrors: tuple[Path, Path], tmp_path: Path) -> DictConfig:
     """Project config pointed at the synthetic stores and a fresh cache."""
     cfg = load_config()
     base = remote.as_posix()
     updates = {
+        "data.aifs_ens.base_urls": [m.as_posix() for m in mirrors],
+        "data.aifs_ens.members": grib_mirror.MEMBERS,
+        "data.aifs_ens.steps": list(grib_mirror.STEPS),
         "data.cache_dir": (tmp_path / "cache").as_posix(),
         "data.pardig.archive_url": f"{base}/pardig/archive.zarr",
         "data.pardig.frame_url": f"{base}/pardig/frames/{STAMP}/predictions.zarr",
