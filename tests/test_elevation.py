@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 import pytest
 import xarray as xr
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from arena.data import cache
 from arena.data.region import Region
@@ -28,20 +28,60 @@ class FakeApi:
         return {"elevation": list(lat**2 + lon)}
 
 
-def test_fetch_averages_sub_samples_of_each_cell(synthetic: DictConfig) -> None:
+def test_fetch_samples_the_centre_of_each_cell_by_default(
+    synthetic: DictConfig,
+) -> None:
     api = FakeApi()
     out = elevation.fetch(synthetic, ALPS, get_json=api)
     assert out.dims == ("latitude", "longitude")
     assert out.shape == (41, 81)
     assert out.attrs["units"] == "m"
     assert (out.latitude.values[0], out.longitude.values[-1]) == (43.5, 14.0)
+    expected = out.latitude**2 + out.longitude
+    np.testing.assert_allclose(out.values, expected.values, rtol=1e-9)
+    assert max(api.sizes) <= 100
+    assert sum(api.sizes) == 41 * 81
+
+
+def test_fetch_can_average_sub_samples_of_each_cell(synthetic: DictConfig) -> None:
+    OmegaConf.update(synthetic, "data.elevation.subsamples", 3)
+    api = FakeApi()
+    out = elevation.fetch(synthetic, ALPS, get_json=api)
     # Sub-samples sit a third of a cell apart, so the mean of lat**2 over a
     # cell exceeds the centre value by the variance of those offsets.
     spread = (2 / 3) * (0.1 / 3) ** 2
     expected = out.latitude**2 + spread + out.longitude
     np.testing.assert_allclose(out.values, expected.values, rtol=1e-9)
-    assert max(api.sizes) <= 100
     assert sum(api.sizes) == 41 * 81 * 9
+
+
+def test_fetch_waits_and_retries_when_rate_limited(
+    synthetic: DictConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = FakeApi()
+    refusals = [elevation.RateLimited(5.0), elevation.RateLimited(7.0)]
+    waits: list[float] = []
+
+    def limited(url: str) -> dict[str, Any]:
+        if refusals:
+            raise refusals.pop(0)
+        return api(url)
+
+    monkeypatch.setattr(elevation.time, "sleep", waits.append)
+    out = elevation.fetch(synthetic, ALPS, get_json=limited)
+    assert waits == [6.0, 8.0]
+    assert out.shape == (41, 81) and sum(api.sizes) == 41 * 81
+
+
+def test_fetch_gives_up_when_the_wait_is_too_long(
+    synthetic: DictConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def exhausted(url: str) -> dict[str, Any]:
+        raise elevation.RateLimited(3600.0)
+
+    monkeypatch.setattr(elevation.time, "sleep", lambda seconds: None)
+    with pytest.raises(RuntimeError, match="request limit"):
+        elevation.fetch(synthetic, ALPS, get_json=exhausted)
 
 
 def test_fetch_rejects_a_short_answer(synthetic: DictConfig) -> None:

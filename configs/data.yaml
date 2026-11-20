@@ -47,11 +47,15 @@ aifs_ens:
   # dissemination is about 7 h 40 min; observed outliers reach 10.5 h).
   availability_lag_hours: 12
 
-# Copernicus DEM GLO-90 through the Open-Meteo elevation API.
+# Copernicus DEM GLO-90 through the Open-Meteo elevation API (free tier).
 elevation:
   url: https://api.open-meteo.com/v1/elevation
-  subsamples: 3
+  # Points per cell side. One samples the cell centre; the free tier allows
+  # roughly 1000 points a minute, so finer sampling takes days for a region.
+  subsamples: 1
   batch_size: 100
+  # A longer wait asked by the service means an hourly or daily limit: stop.
+  max_wait_seconds: 120
 
 strata:
   coast_distance_deg: 0.3
