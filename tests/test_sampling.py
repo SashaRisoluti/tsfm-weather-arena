@@ -2,7 +2,7 @@ import numpy as np
 import xarray as xr
 
 from arena.config import load_config
-from arena.data.sampling import STRATA, strata
+from arena.data.sampling import STRATA, strata, stratum_means
 
 
 def transect(heights: list[float]) -> xr.DataArray:
@@ -41,3 +41,18 @@ def test_land_below_sea_level_is_not_sea() -> None:
 def test_thresholds_are_inclusive_at_the_lower_bound() -> None:
     labels = strata(transect([299.9, 300, 999.9, 1000]), load_config())
     assert names(labels) == ["plains", "pre_alps", "pre_alps", "alps"]
+
+
+def test_stratum_means_average_the_cells_of_each_stratum() -> None:
+    labels = strata(transect([0, 50, 400, 400, 2000]), load_config())
+    field = xr.DataArray(
+        np.array([[[1.0, 2.0, 3.0, 5.0, 7.0]], [[10.0, 20.0, 30.0, 50.0, 70.0]]]),
+        dims=("time", "latitude", "longitude"),
+        coords={"latitude": labels.latitude, "longitude": labels.longitude},
+    )
+    out = stratum_means(field, labels)
+    # no cell is plains, so that stratum is left out
+    assert list(out.stratum.values) == ["sea", "coast", "pre_alps", "alps"]
+    assert out.dims == ("stratum", "time")
+    np.testing.assert_allclose(out.sel(stratum="pre_alps").values, [4.0, 40.0])
+    np.testing.assert_allclose(out.sel(stratum="alps").values, [7.0, 70.0])

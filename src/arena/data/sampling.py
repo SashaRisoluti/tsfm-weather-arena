@@ -39,3 +39,18 @@ def strata(elevation: xr.DataArray, cfg: DictConfig) -> xr.DataArray:
         "flag_meanings": " ".join(STRATA),
     }
     return labels
+
+
+def stratum_means(field: xr.DataArray, labels: xr.DataArray) -> xr.DataArray:
+    """Mean of ``field`` over the cells of each stratum.
+
+    The result has a leading ``stratum`` dimension labelled with the names in
+    ``STRATA``; strata without any cell are left out.
+    """
+    parts = []
+    for index, name in enumerate(STRATA):
+        cells = labels == index
+        if bool(cells.any()):
+            mean = field.where(cells).mean(("latitude", "longitude"))
+            parts.append(mean.assign_coords(stratum=name))
+    return xr.concat(parts, dim="stratum")

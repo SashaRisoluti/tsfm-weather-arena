@@ -147,6 +147,7 @@ def test_open_cached_joins_archive_and_days_in_time_order(
     with cache.open_cached(synthetic, "pardig") as ds:
         assert ds.sizes == {"time": 192, "latitude": 41, "longitude": 81}
         assert bool(np.all(np.diff(ds.time.values) == np.timedelta64(15, "m")))
+        assert ds.precipitation.attrs["units"] == "mm h-1"
 
 
 def test_open_cached_without_data_raises(synthetic: DictConfig) -> None:

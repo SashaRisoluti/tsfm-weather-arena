@@ -60,7 +60,7 @@ def _concat(parts: list[xr.Dataset], dim: str = "time") -> xr.Dataset:
         coords="minimal",
         compat="override",
         join="exact",
-        combine_attrs="drop",
+        combine_attrs="drop_conflicts",
     )
 
 

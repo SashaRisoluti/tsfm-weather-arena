@@ -116,3 +116,4 @@ def test_open_cached_stacks_runs_and_keeps_the_model_version(
         assert bool(ds.cp.isel(init_time=0).isnull().all())
         assert bool(ds.cp.isel(init_time=1).notnull().all())
         assert bool(ds.tp.notnull().all())
+        assert ds.tp.attrs["units"] == "mm" and ds.cp.attrs["units"] == "mm"
