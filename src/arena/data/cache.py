@@ -6,6 +6,7 @@ Layout under ``<cache_dir>/<region>/``::
     pardig/frames/YYYYMMDD.zarr     one day of 15-minute frames
     satweave/YYYYMMDD.zarr          one day of hourly frames
     aifs_ens/YYYYMMDDHH.zarr        one forecast run
+    static/elevation.zarr           cell-mean terrain elevation
 
 Every store is written to a temporary folder and then renamed, so a store
 that exists is complete. Precipitation is stored in mm/h.
@@ -22,7 +23,7 @@ import xarray as xr
 from omegaconf import DictConfig
 
 from arena.data.region import Region, select_region
-from arena.data.sources import pardig, satweave
+from arena.data.sources import elevation, pardig, satweave
 from arena.paths import project_root
 
 log = logging.getLogger(__name__)
@@ -80,6 +81,16 @@ def cache_pardig_archive(cfg: DictConfig) -> Path:
         sub = sub.drop_encoding().chunk({"time": -1, "latitude": 5, "longitude": 5})
         write_atomic(sub, path)
     log.info("pardig archive cached")
+    return path
+
+
+def cache_elevation(cfg: DictConfig) -> Path:
+    """Fetch the terrain elevation of the region, once."""
+    path = cache_root(cfg) / "static" / "elevation.zarr"
+    if not path.exists():
+        heights = elevation.fetch(cfg, Region.from_config(cfg.region))
+        write_atomic(heights.to_dataset(name="elevation"), path)
+        log.info("elevation cached")
     return path
 
 
