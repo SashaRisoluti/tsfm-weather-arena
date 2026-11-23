@@ -36,6 +36,8 @@ End = Annotated[datetime, typer.Option(help="Last day or run time, UTC, inclusiv
 def main() -> None:
     """Precipitation forecasting benchmark."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    # One line per download request is noise in a long run.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def _report(paths: list[Path]) -> None:

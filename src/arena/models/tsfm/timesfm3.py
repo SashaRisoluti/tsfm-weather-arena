@@ -18,12 +18,16 @@ class TimesFM3Backend:
         checkpoint: str = "google/timesfm-3.0-pytorch",
         device: str | None = None,
         model: Any = None,
+        batch_size: int = 4,
     ) -> None:
         if model is None:
             # Imported here: torch and timesfm are an optional dependency group.
             from timesfm3 import TimesFM3Forecaster
 
-            model = TimesFM3Forecaster.from_pretrained(checkpoint, device=device)
+            # Series per forward pass; the package default of 4 leaves a GPU idle.
+            model = TimesFM3Forecaster.from_pretrained(
+                checkpoint, device=device, per_core_batch_size=batch_size
+            )
         self.model = model
 
     def forecast(

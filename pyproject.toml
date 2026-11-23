@@ -64,4 +64,14 @@ dev = [
 ]
 tsfm = [
     "timesfm[torch]>=3.0.2",
+    "torch>=2.15.0",
 ]
+
+[tool.uv.sources]
+# CUDA build on Windows desktops; Linux (CI, Colab) keeps the PyPI wheel.
+torch = [{ index = "pytorch-cu132", marker = "sys_platform == 'win32'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true

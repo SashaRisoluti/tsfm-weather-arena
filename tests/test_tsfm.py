@@ -210,3 +210,25 @@ def test_timestral_backend_talks_to_its_bridge(tmp_path: Path) -> None:
             backend.forecast(context, None, np.zeros((2, 1, 9), "float32"), horizon=3)
     finally:
         backend.close()
+
+
+def test_timesfm3_backend_passes_the_batch_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict = {}
+
+    class Loader:
+        @staticmethod
+        def from_pretrained(checkpoint, device=None, **kwargs):  # type: ignore[no-untyped-def]
+            seen.update(checkpoint=checkpoint, device=device, **kwargs)
+            return FakeTimesFM3()
+
+    fake_module = type(sys)("timesfm3")
+    fake_module.TimesFM3Forecaster = Loader  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "timesfm3", fake_module)
+    TimesFM3Backend("some/checkpoint", device="cuda", batch_size=64)
+    assert seen == {
+        "checkpoint": "some/checkpoint",
+        "device": "cuda",
+        "per_core_batch_size": 64,
+    }

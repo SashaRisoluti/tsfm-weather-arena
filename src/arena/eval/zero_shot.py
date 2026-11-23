@@ -152,7 +152,11 @@ def _backends(cfg: DictConfig) -> Iterator[Callable[[str], Any]]:
             if model == "timesfm3":
                 from arena.models.tsfm.timesfm3 import TimesFM3Backend
 
-                loaded[model] = TimesFM3Backend(checkpoint, device=_device(cfg))
+                loaded[model] = TimesFM3Backend(
+                    checkpoint,
+                    device=_device(cfg),
+                    batch_size=int(cfg.tsfm.timesfm3_batch_size),
+                )
             else:
                 from arena.models.tsfm.timestral import TimestralBackend
 
