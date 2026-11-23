@@ -216,3 +216,62 @@ frames between *s* − 120 min and *s* + 90 min, so the whole signal lies where
 the covariates and the target share inputs. Any skill the satellite
 covariates add at short leads is therefore judged together with the
 90-minute sensitivity run.
+
+## Evaluation
+
+### Common quantiles
+
+Every model is scored on the same 19 quantile levels, 0.05 to 0.95 in steps
+of 0.05 (`src/arena/eval/quantiles.py`). Models that publish other levels are
+mapped by linear interpolation in probability; beyond their outermost levels
+the two nearest levels are extended linearly. The result is clipped at zero
+and sorted. An ensemble becomes quantiles by numpy's default empirical
+quantile (linear between order statistics). A point forecast has all 19
+quantiles equal.
+
+### Scores
+
+| Score | Definition |
+|---|---|
+| CRPS | twice the mean pinball loss over the 19 levels, for every model; for the ensemble, the exact ensemble CRPS is reported beside it |
+| CRPS skill | 1 − CRPS / CRPS of climatology |
+| MAE | absolute error of the median |
+| CSI, POD, FAR | event forecast where the median reaches the threshold; from hits, misses and false alarms summed over all samples |
+| Brier score, reliability | event probability from the forecast CDF, linear between quantiles and flat outside them (at most 0.95, at least 0.05); reliability in 10 bins |
+| Coverage | share of observations inside the 50 % and 90 % central intervals |
+| PIT | forecast CDF at the observation; a dry observation gets a value drawn uniformly between 0 and the forecast's probability of zero |
+| FSS | fractions skill score of two fields for a threshold and a square window |
+
+Thresholds are 0.1, 1 and 5 mm/h for the 15-minute regime and the same rates
+over 6 hours (0.6, 6 and 30 mm) for 6-hour totals. Every score has a unit
+test against hand-computed values; the CRPS also against the `scoringrules`
+package. Because most cell-hours are dry, coverage and Brier scores are high
+for every model and are read together with the event scores.
+
+### Evaluation pixels
+
+The grid is cut into blocks of 5 × 5 cells and a quarter of the blocks,
+drawn once with a fixed seed, is held out. The 200 evaluation pixels are 40
+per stratum drawn from held-out blocks (`configs/pixels/alps_eval.csv`);
+models trained on pixels use cells of the other blocks only, so a training
+cell is never the neighbour of an evaluation cell inside one block.
+
+### Baselines and reference
+
+| Model | Forecast |
+|---|---|
+| Persistence | the last visible value, for every lead |
+| Climatology | quantiles of the values at the same cell, calendar month and UTC hour of the valid time, fitted on 2016–2024 |
+| Extrapolation | the last frame shifted along one motion vector, found by phase correlation of the frames one hour apart; motion faster than 120 km/h is treated as noise; no growth or decay |
+| AIFS ensemble | quantiles of the 51 members of the newest usable run, remapped conservatively to the target grid |
+
+The extrapolation baseline is simpler than a full optical-flow nowcast (one
+motion vector, whole-cell shifts), because the standard package for it builds
+only from source. It sets a floor, not the state of the art.
+
+A smoke run on three validation days (15–17 July 2025, hourly issues,
+200 pixels) checks the whole chain: `arena eval smoke` writes
+`results/summary/smoke_regime_a.csv`. On those mostly dry days persistence
+beats climatology only at 15 minutes, and extrapolation beats persistence on
+CSI from 30 minutes but not on CRPS: a displaced point forecast is penalised
+twice, once where rain is forecast and once where it falls.
