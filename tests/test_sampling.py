@@ -1,8 +1,12 @@
+from datetime import datetime, timedelta
+
 import numpy as np
+import pytest
 import xarray as xr
+from omegaconf import DictConfig
 
 from arena.config import load_config
-from arena.data.sampling import STRATA, strata, stratum_means
+from arena.data.sampling import STRATA, split_of, strata, stratum_means
 
 
 def transect(heights: list[float]) -> xr.DataArray:
@@ -56,3 +60,63 @@ def test_stratum_means_average_the_cells_of_each_stratum() -> None:
     assert out.dims == ("stratum", "time")
     np.testing.assert_allclose(out.sel(stratum="pre_alps").values, [4.0, 40.0])
     np.testing.assert_allclose(out.sel(stratum="alps").values, [7.0, 70.0])
+
+
+def windows(cfg: DictConfig, family: str) -> dict[str, tuple[datetime, datetime]]:
+    """Each window as [start, end) with the inclusive end date made exclusive."""
+    splits = cfg.data.splits
+    named = {
+        "train": splits[family].train,
+        "validation": splits[family].validation,
+        "test": splits.test,
+    }
+    return {
+        name: (
+            datetime.fromisoformat(start),
+            datetime.fromisoformat(end) + timedelta(days=1),
+        )
+        for name, (start, end) in named.items()
+    }
+
+
+@pytest.mark.parametrize("family", ["tsfm", "hybrid"])
+def test_windows_of_a_family_are_ordered_and_disjoint(family: str) -> None:
+    spans = list(windows(load_config(), family).values())
+    for (_, end), (start, _) in zip(spans, spans[1:], strict=False):
+        assert end <= start
+
+
+def test_test_window_is_disjoint_from_every_fitting_window() -> None:
+    cfg = load_config()
+    test_start, test_end = windows(cfg, "tsfm")["test"]
+    for family in ("tsfm", "hybrid"):
+        for name in ("train", "validation"):
+            start, end = windows(cfg, family)[name]
+            assert end <= test_start or start >= test_end
+
+
+def test_samples_within_the_embargo_of_a_window_end_are_dropped() -> None:
+    cfg = load_config()
+    end = datetime(2026, 11, 16)  # the day after the last test day
+    assert split_of(end - timedelta(hours=48), cfg, "tsfm") == "test"
+    assert split_of(end - timedelta(hours=47), cfg, "tsfm") is None
+    assert split_of(datetime(2026, 5, 13), cfg, "hybrid") == "test"
+    assert split_of(datetime(2026, 5, 12, 12), cfg, "hybrid") is None
+    assert split_of(datetime(2015, 12, 31), cfg, "tsfm") is None
+
+
+@pytest.mark.parametrize("family", ["tsfm", "hybrid"])
+def test_no_target_reaches_outside_the_window_of_its_sample(family: str) -> None:
+    cfg = load_config()
+    spans = windows(cfg, family)
+    embargo = timedelta(hours=int(cfg.data.splits.embargo_hours))
+    issue = datetime(2016, 1, 1)
+    counts = dict.fromkeys(spans, 0)
+    while issue < datetime(2027, 1, 1):
+        name = split_of(issue, cfg, family)
+        if name is not None:
+            start, end = spans[name]
+            assert start <= issue and issue + embargo <= end
+            counts[name] += 1
+        issue += timedelta(hours=6)
+    assert all(counts.values())

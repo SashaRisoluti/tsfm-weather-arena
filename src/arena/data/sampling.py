@@ -1,4 +1,6 @@
-"""Terrain strata used to sample and to report by type of location."""
+"""Terrain strata and split windows used to sample and to report."""
+
+from datetime import datetime, timedelta
 
 import numpy as np
 import xarray as xr
@@ -54,3 +56,25 @@ def stratum_means(field: xr.DataArray, labels: xr.DataArray) -> xr.DataArray:
             mean = field.where(cells).mean(("latitude", "longitude"))
             parts.append(mean.assign_coords(stratum=name))
     return xr.concat(parts, dim="stratum")
+
+
+def split_of(issue: datetime, cfg: DictConfig, family: str) -> str | None:
+    """``train``, ``validation`` or ``test`` for a sample issued at ``issue``.
+
+    ``family`` is ``tsfm`` or ``hybrid``; the test window is shared. Window
+    dates are inclusive. A sample whose 48-hour target would reach past the
+    end of its window is dropped (embargo), as is one outside every window.
+    """
+    splits = cfg.data.splits
+    embargo = timedelta(hours=int(splits.embargo_hours))
+    named = {
+        "train": splits[family].train,
+        "validation": splits[family].validation,
+        "test": splits.test,
+    }
+    for name, (first, last) in named.items():
+        start = datetime.fromisoformat(first)
+        end = datetime.fromisoformat(last) + timedelta(days=1)
+        if start <= issue < end:
+            return name if issue + embargo <= end else None
+    return None
