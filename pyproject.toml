@@ -44,7 +44,7 @@ files = ["src"]
 check_untyped_defs = true
 
 [[tool.mypy.overrides]]
-module = ["fsspec.*", "eccodes.*", "pandas.*"]
+module = ["fsspec.*", "eccodes.*", "pandas.*", "timesfm3.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -61,4 +61,7 @@ dev = [
     "pytest>=9.2.0",
     "ruff>=0.17.6",
     "scoringrules>=0.10.0",
+]
+tsfm = [
+    "timesfm[torch]>=3.0.2",
 ]

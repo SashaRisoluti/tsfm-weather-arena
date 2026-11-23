@@ -1,0 +1,13 @@
+[project]
+name = "timestral-bridge"
+version = "0.1.0"
+description = "Separate environment that runs Timestral for the benchmark through a file bridge"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.0",
+    # Pinned commit, read before use: inference code only, weights loaded from safetensors.
+    "timestral @ git+https://github.com/mistralai/timestral.git@a534bdbd244d64f3d9d743f46c7bf6fc330ed4ff",
+]
+
+[tool.uv]
+package = false
