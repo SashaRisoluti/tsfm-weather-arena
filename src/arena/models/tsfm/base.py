@@ -13,7 +13,7 @@ common levels) is done here, identically for every backend.
 
 from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Protocol
+from typing import ClassVar, Protocol
 
 import numpy as np
 import pandas as pd
@@ -43,7 +43,7 @@ class TsfmForecaster:
     horizon. Only features known ahead are read after the issue time.
     """
 
-    name = "tsfm"
+    name: ClassVar[str] = "tsfm"
 
     def __init__(
         self,
@@ -55,7 +55,7 @@ class TsfmForecaster:
         use_covariates: bool = False,
         transform: str = "none",
     ) -> None:
-        self.name = name  # type: ignore[misc]
+        self.label = name
         self.backend = backend
         self.pixels = pixels.reset_index(drop=True)
         self.context_steps = context_steps
@@ -89,7 +89,7 @@ class TsfmForecaster:
         past = known = None
         if self.use_covariates:
             if covariates is None:
-                raise ValueError(f"{self.name} needs covariates")
+                raise ValueError(f"{self.label} needs covariates")
             past, known = self._covariates(
                 covariates, window.time.values, step, horizon
             )

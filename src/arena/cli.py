@@ -1,4 +1,4 @@
-"""Command-line entry point: ``arena data|archive|eval ...``."""
+"""Command-line entry point: ``arena data|archive|eval|run ...``."""
 
 import logging
 from datetime import datetime
@@ -19,8 +19,10 @@ data_app = typer.Typer(no_args_is_help=True, help="Fill the regional data cache.
 archive_app = typer.Typer(no_args_is_help=True, help="Archive ensemble forecast runs.")
 app.add_typer(data_app, name="data")
 eval_app = typer.Typer(no_args_is_help=True, help="Score forecasts.")
+run_app = typer.Typer(no_args_is_help=True, help="Run model experiments.")
 app.add_typer(archive_app, name="archive")
 app.add_typer(eval_app, name="eval")
+app.add_typer(run_app, name="run")
 
 Overrides = Annotated[
     list[str] | None,
@@ -93,6 +95,27 @@ def eval_pixels_file(override: Overrides = None) -> None:
 def smoke(override: Overrides = None) -> None:
     """Score the baselines on a few validation days."""
     _report([runner.smoke_regime_a(load_config(override or []))])
+
+
+@run_app.command("zero-shot")
+def zero_shot(
+    regime: Annotated[str, typer.Option(help="a (15 minutes) or b (6 hours).")],
+    split: Annotated[str, typer.Option(help="smoke (validation days) or test.")],
+    runs: Annotated[
+        str | None, typer.Option(help="Comma-separated run names; all by default.")
+    ] = None,
+    override: Overrides = None,
+) -> None:
+    """Score the baselines and the foundation models without training.
+
+    Resumable: days already scored are skipped.
+    """
+    from arena.eval.zero_shot import run_zero_shot
+
+    if regime not in ("a", "b"):
+        raise typer.BadParameter("regime must be a or b")
+    chosen = runs.split(",") if runs else None
+    _report([run_zero_shot(load_config(override or []), regime, split, chosen)])
 
 
 @archive_app.command("backfill")

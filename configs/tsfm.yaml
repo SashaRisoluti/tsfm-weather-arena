@@ -1,0 +1,55 @@
+# @package tsfm
+
+# cuda if available, else cpu; or name a torch device.
+device: auto
+
+checkpoints:
+  timesfm3: google/timesfm-3.0-pytorch
+  timestral_5m: mistralai/Timestral-5M
+  timestral_28m: mistralai/Timestral-28M
+  timestral_123m: mistralai/Timestral-123M
+  timestral_209m: mistralai/Timestral-209M
+
+# 15-minute regime: 7 days of context, leads 15 min to 6 h.
+regime_a:
+  context_steps: 672
+  horizon_steps: 24
+  # Satellite frames are used one hour after their time (measured latency).
+  satellite_lag_minutes: 60
+  covariates: [radiative, solar]
+  runs:
+    - {name: timesfm3, model: timesfm3}
+    - {name: timesfm3_log1p, model: timesfm3, transform: log1p}
+    - {name: timesfm3_covariates, model: timesfm3, covariates: true}
+    - {name: timesfm3_neighbours, model: timesfm3, neighbours: true}
+    - {name: timestral_209m, model: timestral_209m}
+    - {name: timestral_209m_log1p, model: timestral_209m, transform: log1p}
+    - {name: timestral_209m_covariates, model: timestral_209m, covariates: true}
+    - {name: timestral_209m_neighbours, model: timestral_209m, neighbours: true}
+    - {name: timestral_123m, model: timestral_123m}
+    - {name: timestral_28m, model: timestral_28m}
+    - {name: timestral_5m, model: timestral_5m}
+
+# 6-hour regime: 120 days of 6-hour totals as context, leads 6 to 48 h,
+# issues at 00 and 12 UTC.
+regime_b:
+  context_steps: 480
+  issue_hours: [0, 12]
+  runs:
+    - {name: timesfm3, model: timesfm3}
+    - {name: timesfm3_neighbours, model: timesfm3, neighbours: true}
+    - {name: timestral_209m, model: timestral_209m}
+    - {name: timestral_209m_neighbours, model: timestral_209m, neighbours: true}
+
+# Quick runs on validation days, small enough for a laptop CPU.
+smoke:
+  regime_a:
+    days: ["2025-07-15", "2025-07-16", "2025-07-17"]
+    issue_every_hours: 3
+  regime_b:
+    start: "2025-07-01"
+    end: "2025-08-31"
+
+# Per-day score parts (not committed) and the summaries built from them.
+parts_dir: results/parts
+summary: "results/summary/zero_shot_{regime}_{label}.csv"
