@@ -152,3 +152,11 @@ def test_extrapolation_ignores_an_implausibly_fast_motion() -> None:
     context = grid_frames(times, frames)
     out = Extrapolation().predict(context, None, ISSUE, [timedelta(minutes=30)])
     np.testing.assert_allclose(out.sel(quantile=0.5).isel(lead=0).values, frames[-1])
+
+
+def test_motion_within_a_speed_limit_follows_the_slow_system() -> None:
+    # a large blob jumps 20 columns, a small one moves 3: only 3 is allowed
+    before = blob(20, 60, 6, 5) * 3 + blob(20, 60, 14, 30)
+    after = blob(20, 60, 6, 25) * 3 + blob(20, 60, 14, 33)
+    assert motion(before, after)[1] == 20
+    assert motion(before, after, max_rows=5, max_cols=10) == (0, 3)

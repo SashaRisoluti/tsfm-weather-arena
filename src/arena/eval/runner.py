@@ -13,6 +13,7 @@ from arena.data import cache
 from arena.data.align import past_as_of
 from arena.data.sampling import split_of
 from arena.eval import metrics
+from arena.eval.quantiles import LEVELS
 from arena.models.base import Forecaster
 from arena.models.baselines.climatology import Climatology
 from arena.models.baselines.extrapolation import Extrapolation
@@ -30,23 +31,35 @@ def score(
     summed over the samples, with an event forecast where the median
     reaches the threshold.
     """
+    if not np.array_equal(forecast["quantile"].values, LEVELS):
+        raise ValueError("forecast must be on the common quantile levels")
     samples = [str(dim) for dim in observed.dims if dim != "lead"]
+    # A sample counts only with an observation and a complete forecast.
+    valid = observed.notnull() & forecast.notnull().all("quantile")
+    observed = observed.where(valid)
+    forecast = forecast.where(valid)
     columns = {
         "crps": metrics.crps_quantile(forecast, observed).mean(samples),
         "mae_median": metrics.mae_median(forecast, observed).mean(samples),
-        "samples": observed.notnull().sum(samples),
+        "samples": valid.sum(samples),
     }
     inside = metrics.coverage(forecast, observed)
     for width in inside.interval.values:
         columns[f"coverage_{round(width * 100)}"] = (
-            inside.sel(interval=width, drop=True).astype("float64").mean(samples)
+            inside.sel(interval=width, drop=True)
+            .astype("float64")
+            .where(valid)
+            .mean(samples)
         )
     median = forecast.sel(quantile=0.5, drop=True)
     for threshold in thresholds:
         event = observed >= threshold
         p = metrics.exceedance_probability(forecast, threshold)
-        columns[f"brier_{threshold:g}"] = metrics.brier(p, event).mean(samples)
-        counts = metrics.categorical(median >= threshold, event, samples)
+        brier = metrics.brier(p, event).where(valid)
+        columns[f"brier_{threshold:g}"] = brier.mean(samples)
+        counts = metrics.categorical(
+            (median >= threshold) & valid, event & valid, samples
+        )
         for name in ("csi", "pod", "far"):
             columns[f"{name}_{threshold:g}"] = counts[name]
     table = xr.Dataset(columns).to_dataframe()
@@ -71,11 +84,13 @@ def run_regime_a(
     context: timedelta,
     thresholds: Sequence[float],
     pixels: pd.DataFrame | None = None,
+    lag_minutes: int = 0,
 ) -> pd.DataFrame:
     """Score fitted models on the 15-minute target.
 
     The context of each issue is the target from ``issue - context`` up to
-    the issue time (hindcast). If ``pixels`` is given, gridded forecasts and
+    the issue time (hindcast), or up to ``lag_minutes`` before it for the
+    sensitivity run. If ``pixels`` is given, gridded forecasts and
     observations are scored at those pixels only. CRPS skill is relative to
     the model named ``climatology``, when it is among the models.
     """
@@ -93,7 +108,7 @@ def run_regime_a(
         forecasts = []
         for issue in issues:
             window = rain.sel(time=slice(issue - context, issue))
-            seen = past_as_of(window, issue, 0)
+            seen = past_as_of(window, issue, lag_minutes)
             forecasts.append(_at(model.predict(seen, None, issue, leads), pixels))
         forecast = xr.concat(forecasts, dim="issue")
         table = score(forecast, observed, thresholds).reset_index()

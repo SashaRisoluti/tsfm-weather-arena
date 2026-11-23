@@ -75,3 +75,63 @@ def test_run_regime_a_scores_each_model_and_lead() -> None:
     assert row.crps == pytest.approx(expected)
     skill = table[table.model == "climatology"].crps_skill
     np.testing.assert_allclose(skill, 0.0)
+
+
+def test_score_counts_only_samples_with_a_forecast_and_an_observation() -> None:
+    forecast = point(np.array([[2.0, 0.0, np.nan], [0.0, 6.0, 1.0]]))
+    forecast = forecast.assign_coords(pixel=[0, 1, 2])
+    observed = xr.DataArray(
+        [[0.0, np.nan, 5.0], [3.0, 6.0, np.nan]],
+        dims=("lead", "pixel"),
+        coords={"lead": [1, 2], "pixel": [0, 1, 2]},
+    )
+    table = score(forecast, observed, thresholds=[1.0])
+    # lead 1 keeps pixel 0 only, lead 2 pixels 0 and 1
+    assert table["samples"].tolist() == [1, 2]
+    np.testing.assert_allclose(table["crps"], [2.0, 1.5])
+    np.testing.assert_allclose(table["coverage_90"], [0.0, 0.5])
+    # lead 1: a false alarm only; lead 2: one miss, one hit
+    np.testing.assert_allclose(table["far_1"], [1.0, 0.0])
+    np.testing.assert_allclose(table["pod_1"], [np.nan, 0.5])
+    # point forecasts: event probability 0.95 or 0.05
+    np.testing.assert_allclose(table["brier_1"], [0.95**2, (0.95**2 + 0.05**2) / 2])
+
+
+def test_score_sums_counts_before_taking_ratios() -> None:
+    # per-sample ratios would average 0.5 and 0; summed counts give 1/3
+    forecast = point(np.array([[5.0, 5.0], [0.0, 0.0]]))
+    observed = xr.DataArray(
+        [[5.0, 0.0], [0.0, 0.0]], dims=("lead", "pixel"), coords={"lead": [1, 2]}
+    )
+    forecast = xr.concat([forecast, forecast.isel(pixel=[1])], dim="pixel")
+    observed = xr.concat([observed, observed.isel(pixel=[1])], dim="pixel")
+    table = score(forecast, observed, thresholds=[1.0])
+    assert table["csi_1"].iloc[0] == pytest.approx(1 / 3)
+
+
+def test_score_refuses_quantiles_off_the_common_levels() -> None:
+    forecast = point(np.zeros((2, 2))).isel(quantile=slice(1, None))
+    observed = xr.DataArray(
+        np.zeros((2, 2)), dims=("lead", "pixel"), coords={"lead": [1, 2]}
+    )
+    with pytest.raises(ValueError, match="common quantile levels"):
+        score(forecast, observed, thresholds=[1.0])
+
+
+def test_run_regime_a_can_cut_the_context_before_the_issue_time() -> None:
+    times = pd.date_range("2025-07-25", periods=48, freq="15min")
+    rain = xr.DataArray(
+        np.arange(48.0)[:, None], dims=("time", "pixel"), coords={"time": times}
+    )
+    issue = datetime(2025, 7, 25, 6)
+    table = run_regime_a(
+        rain,
+        {"persistence": Persistence()},
+        [issue],
+        [timedelta(minutes=15)],
+        context=timedelta(hours=3),
+        thresholds=[1.0],
+        lag_minutes=90,
+    )
+    # last visible frame 04:30 holds 18; the observation at 06:15 holds 25
+    assert table.crps.iloc[0] == pytest.approx(7.0)

@@ -106,6 +106,8 @@ def test_exceedance_probability_from_quantiles(
 
 def test_exceedance_probability_of_a_point_forecast_has_flat_tails() -> None:
     point = quantiles([2.0] * 19, list(LEVELS))
+    # events are amounts at or above the threshold
+    assert float(metrics.exceedance_probability(point, 2.0)) == pytest.approx(0.95)
     assert float(metrics.exceedance_probability(point, 1.0)) == pytest.approx(0.95)
     assert float(metrics.exceedance_probability(point, 3.0)) == pytest.approx(0.05)
 
@@ -139,6 +141,17 @@ def test_pit_inside_the_distribution() -> None:
     assert float(metrics.pit(linear(), xr.DataArray(3.0), rng)) == pytest.approx(0.3)
 
 
+def test_pit_of_a_dry_observation_is_a_uniform_draw_times_f0() -> None:
+    values = [0.0 if level <= 0.3 else level for level in LEVELS]
+    q = quantiles(values, list(LEVELS)).expand_dims(sample=3)
+    got = metrics.pit(
+        q, xr.DataArray(np.zeros(3), dims="sample"), np.random.default_rng(7)
+    )
+    np.testing.assert_allclose(
+        got.values, 0.3 * np.random.default_rng(7).uniform(size=3)
+    )
+
+
 def test_pit_of_a_dry_observation_is_randomised_over_the_mass_at_zero() -> None:
     rng = np.random.default_rng(0)
     # levels up to 0.3 are exactly zero: F(0) = 0.3
@@ -163,6 +176,40 @@ def test_reliability_by_hand() -> None:
     assert table.loc[0, "count"] == 2 and table.loc[0, "observed"] == 0.5
     assert table.loc[9, "count"] == 2 and table.loc[9, "observed"] == 1.0
     assert table.loc[0, "forecast"] == pytest.approx(0.05)
+
+
+def test_reliability_bins_by_floor_with_exact_edges() -> None:
+    p = xr.DataArray(1 - np.array([0.9, 0.8, 0.15]), dims="sample")
+    o = xr.DataArray([True, True, False], dims="sample")
+    table = metrics.reliability(p, o, bins=10)
+    assert table.loc[1, "count"] == 1 and table.loc[2, "count"] == 1
+    assert table.loc[8, "count"] == 1
+
+
+def test_fss_brute_force_at_the_edges() -> None:
+    rng = np.random.default_rng(4)
+    fc = xr.DataArray(rng.gamma(0.3, 2.0, (9, 11)), dims=("latitude", "longitude"))
+    ob = xr.DataArray(rng.gamma(0.3, 2.0, (9, 11)), dims=("latitude", "longitude"))
+    for window in (1, 3, 5):
+        half = window // 2
+        f = np.pad((fc.values >= 1.0).astype(float), half)
+        o = np.pad((ob.values >= 1.0).astype(float), half)
+        pf = np.array(
+            [
+                [f[i : i + window, j : j + window].mean() for j in range(11)]
+                for i in range(9)
+            ]
+        )
+        po = np.array(
+            [
+                [o[i : i + window, j : j + window].mean() for j in range(11)]
+                for i in range(9)
+            ]
+        )
+        expected = 1 - np.mean((pf - po) ** 2) / (np.mean(pf**2) + np.mean(po**2))
+        assert metrics.fss(fc, ob, threshold=1.0, window=window) == pytest.approx(
+            expected
+        )
 
 
 def field(cells: list[tuple[int, int]]) -> xr.DataArray:

@@ -34,11 +34,12 @@ def mae_median(q: xr.DataArray, obs: xr.DataArray) -> xr.DataArray:
     return abs(q.sel(quantile=0.5, drop=True) - obs)
 
 
-def _cdf(q: xr.DataArray, x: xr.DataArray | float) -> xr.DataArray:
-    """Forecast CDF at ``x``, linear between quantiles, flat outside them."""
+def _cdf(q: xr.DataArray, x: xr.DataArray | float, left: bool = False) -> xr.DataArray:
+    """Forecast CDF at ``x``, linear between quantiles, flat outside them;
+    its limit from the left if ``left`` (equal to it except at a jump)."""
     k = q.sizes["quantile"]
     tau = q["quantile"].values
-    below = (q <= x).sum("quantile")
+    below = ((q < x) if left else (q <= x)).sum("quantile")
     lo = (below - 1).clip(0, k - 2)
     hi = lo + 1
     q_lo, q_hi = q.isel(quantile=lo), q.isel(quantile=hi)
@@ -51,8 +52,8 @@ def _cdf(q: xr.DataArray, x: xr.DataArray | float) -> xr.DataArray:
 
 
 def exceedance_probability(q: xr.DataArray, threshold: float) -> xr.DataArray:
-    """Forecast probability that the amount is above ``threshold``."""
-    return 1.0 - _cdf(q, threshold)
+    """Forecast probability that the amount reaches ``threshold``."""
+    return 1.0 - _cdf(q, threshold, left=True)
 
 
 def brier(p: xr.DataArray, observed: xr.DataArray) -> xr.DataArray:
@@ -110,7 +111,8 @@ def reliability(
     """Mean forecast probability, observed frequency and count per bin."""
     prob = p.values.ravel()
     seen = observed.values.ravel().astype("float64")
-    index = np.minimum((prob * bins).astype(int), bins - 1)
+    # floor with a tolerance, so 0.1 and 0.2 open their bins despite rounding
+    index = np.minimum(np.floor(prob * bins + 1e-9).astype(int), bins - 1)
     frame = pd.DataFrame({"bin": index, "forecast": prob, "observed": seen})
     table = frame.groupby("bin").agg(
         forecast=("forecast", "mean"),
