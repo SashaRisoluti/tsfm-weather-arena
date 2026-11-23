@@ -58,6 +58,20 @@ elevation:
   # A longer wait asked by the service means an hourly or daily limit: stop.
   max_wait_seconds: 120
 
+# What a forecaster may see at an issue time.
+align:
+  # Measured latency of the hourly satellite frames is about one hour.
+  satweave_lag_minutes: 60
+  # Target history up to the issue time (hindcast). The sensitivity run cuts it
+  # 90 minutes earlier, the look-ahead of the target product.
+  target_cutoff_minutes: 0
+  sensitivity_cutoff_minutes: 90
+  # Short-range regime: forecast runs are usable 12 h after their start and are
+  # archived to 60 h, so issues at 00 and 12 UTC reach 48 h leads.
+  regime_b:
+    issue_hours: [0, 12]
+    leads_hours: [6, 12, 18, 24, 30, 36, 42, 48]
+
 strata:
   coast_distance_deg: 0.3
   lowland_max_m: 300.0
