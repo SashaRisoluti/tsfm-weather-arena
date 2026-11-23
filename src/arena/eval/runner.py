@@ -21,15 +21,14 @@ from arena.models.baselines.persistence import Persistence
 from arena.paths import project_path
 
 
-def score(
+def score_parts(
     forecast: xr.DataArray, observed: xr.DataArray, thresholds: Sequence[float]
 ) -> pd.DataFrame:
-    """Scores per lead, averaged over every other dimension.
+    """Sums and counts per lead, from which every score follows.
 
     ``forecast`` has dimensions ``(quantile, lead, ...)`` and ``observed``
-    the same without ``quantile``. Categorical scores come from counts
-    summed over the samples, with an event forecast where the median
-    reaches the threshold.
+    the same without ``quantile``. Parts of several batches add up, so a
+    long run can be scored day by day and summarised at the end.
     """
     if not np.array_equal(forecast["quantile"].values, LEVELS):
         raise ValueError("forecast must be on the common quantile levels")
@@ -39,31 +38,63 @@ def score(
     observed = observed.where(valid)
     forecast = forecast.where(valid)
     columns = {
-        "crps": metrics.crps_quantile(forecast, observed).mean(samples),
-        "mae_median": metrics.mae_median(forecast, observed).mean(samples),
         "samples": valid.sum(samples),
+        "crps_sum": metrics.crps_quantile(forecast, observed).sum(samples),
+        "mae_median_sum": metrics.mae_median(forecast, observed).sum(samples),
     }
     inside = metrics.coverage(forecast, observed)
     for width in inside.interval.values:
-        columns[f"coverage_{round(width * 100)}"] = (
-            inside.sel(interval=width, drop=True)
-            .astype("float64")
-            .where(valid)
-            .mean(samples)
-        )
+        covered = inside.sel(interval=width, drop=True) & valid
+        columns[f"coverage_{round(width * 100)}_sum"] = covered.sum(samples)
     median = forecast.sel(quantile=0.5, drop=True)
     for threshold in thresholds:
         event = observed >= threshold
         p = metrics.exceedance_probability(forecast, threshold)
-        brier = metrics.brier(p, event).where(valid)
-        columns[f"brier_{threshold:g}"] = brier.mean(samples)
+        columns[f"brier_{threshold:g}_sum"] = (
+            metrics.brier(p, event).where(valid).sum(samples)
+        )
         counts = metrics.categorical(
             (median >= threshold) & valid, event & valid, samples
         )
-        for name in ("csi", "pod", "far"):
+        for name in ("hits", "misses", "false_alarms"):
             columns[f"{name}_{threshold:g}"] = counts[name]
     table = xr.Dataset(columns).to_dataframe()
-    return table.drop(columns=[c for c in table.columns if c not in columns])
+    return table[list(columns)]
+
+
+def summarise(parts: pd.DataFrame, by: Sequence[str] = ("lead",)) -> pd.DataFrame:
+    """Scores from the parts of ``score_parts``, added up over ``by`` groups."""
+    totals = parts.groupby(list(by), sort=True).sum(numeric_only=True)
+    n = totals["samples"]
+    out = pd.DataFrame(index=totals.index)
+    out["crps"] = totals["crps_sum"] / n
+    out["mae_median"] = totals["mae_median_sum"] / n
+    for column in totals.columns:
+        if column.startswith("coverage_") or column.startswith("brier_"):
+            out[column.removesuffix("_sum")] = totals[column] / n
+    for column in totals.columns:
+        if column.startswith("hits_"):
+            threshold = column.removeprefix("hits_")
+            hits = totals[column]
+            misses = totals[f"misses_{threshold}"]
+            false_alarms = totals[f"false_alarms_{threshold}"]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                out[f"csi_{threshold}"] = hits / (hits + misses + false_alarms)
+                out[f"pod_{threshold}"] = hits / (hits + misses)
+                out[f"far_{threshold}"] = false_alarms / (hits + false_alarms)
+    out["samples"] = n
+    return out
+
+
+def score(
+    forecast: xr.DataArray, observed: xr.DataArray, thresholds: Sequence[float]
+) -> pd.DataFrame:
+    """Scores per lead, averaged over every other dimension.
+
+    Categorical scores come from counts summed over the samples, with an
+    event forecast where the median reaches the threshold.
+    """
+    return summarise(score_parts(forecast, observed, thresholds).reset_index())
 
 
 def _at(forecast: xr.DataArray, pixels: pd.DataFrame | None) -> xr.DataArray:

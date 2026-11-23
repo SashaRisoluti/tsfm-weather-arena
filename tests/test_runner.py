@@ -6,7 +6,7 @@ import pytest
 import xarray as xr
 
 from arena.eval.quantiles import LEVELS
-from arena.eval.runner import run_regime_a, score
+from arena.eval.runner import run_regime_a, score, score_parts, summarise
 from arena.models.baselines.climatology import Climatology
 from arena.models.baselines.persistence import Persistence
 
@@ -135,3 +135,18 @@ def test_run_regime_a_can_cut_the_context_before_the_issue_time() -> None:
     )
     # last visible frame 04:30 holds 18; the observation at 06:15 holds 25
     assert table.crps.iloc[0] == pytest.approx(7.0)
+
+
+def test_parts_of_two_batches_add_up_to_the_scores_of_both() -> None:
+    rng = np.random.default_rng(5)
+    values = rng.gamma(0.5, 2.0, (2, 6))
+    forecast = point(values).copy(data=np.sort(rng.gamma(0.5, 2.0, (19, 2, 6)), axis=0))
+    observed = xr.DataArray(values, dims=("lead", "pixel"), coords={"lead": [1, 2]})
+    whole = score(forecast, observed, thresholds=[1.0])
+    halves = pd.concat(
+        [
+            score_parts(forecast.isel(pixel=part), observed.isel(pixel=part), [1.0])
+            for part in (slice(0, 3), slice(3, 6))
+        ]
+    ).reset_index()
+    pd.testing.assert_frame_equal(summarise(halves), whole)
