@@ -66,6 +66,7 @@ def decode(message: bytes) -> xr.DataArray:
         values = eccodes.codes_get_values(handle).reshape(shape)
         attrs = {
             "param": str(eccodes.codes_get(handle, "shortName")),
+            "member": int(eccodes.codes_get(handle, "perturbationNumber")),
             "step": int(eccodes.codes_get(handle, "endStep")),
             "model_version": int(
                 eccodes.codes_get(handle, "generatingProcessIdentifier")
@@ -116,7 +117,9 @@ def _fetch_from(base: str, settings: Any, init: datetime, region: Region) -> xr.
     for (step, _), messages in zip(jobs, downloads, strict=True):
         for param, member, blob in messages:
             field = decode(blob)
-            if field.attrs["step"] != step or field.attrs["units"] != "kg m**-2":
+            # The index says where a message is; the message says what it is.
+            found = tuple(field.attrs[k] for k in ("param", "member", "step", "units"))
+            if found != (param, member, step, "kg m**-2"):
                 raise ValueError(f"{label}: unexpected {param} message at step {step}")
             cut = select_region(field, region, settings.grid_step)
             fields.setdefault(param, {})[(member, step)] = cut

@@ -58,7 +58,7 @@ def message(param: str, member: int, step: int, init: datetime, version: int) ->
         eccodes.codes_release(handle)
 
 
-def _run(
+def write_run(
     mirror: Path,
     init: datetime,
     params: tuple[str, ...],
@@ -100,8 +100,8 @@ def _run(
 
 def build_mirrors(root: Path) -> tuple[Path, Path]:
     first, second = root / "first", root / "second"
-    _run(first, COMPLETE, ("tp", "cp"), version=2)
-    _run(first, VERSION_1, ("tp",), version=1)
-    _run(first, INCOMPLETE, ("tp", "cp"), version=2, drop=("tp", 2, 12))
-    _run(second, FALLBACK, ("tp", "cp"), version=2)
+    write_run(first, COMPLETE, ("tp", "cp"), version=2)
+    write_run(first, VERSION_1, ("tp",), version=1)
+    write_run(first, INCOMPLETE, ("tp", "cp"), version=2, drop=("tp", 2, 12))
+    write_run(second, FALLBACK, ("tp", "cp"), version=2)
     return first, second

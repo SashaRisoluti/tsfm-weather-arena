@@ -1,9 +1,11 @@
+import json
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import pytest
 import xarray as xr
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from arena.data.region import Region
 from arena.data.sources import aifs_ens
@@ -43,6 +45,7 @@ def test_decode_returns_the_stored_grid_and_its_metadata() -> None:
     assert (out.latitude.values[0], out.latitude.values[-1]) == (50.0, 40.0)
     assert (out.longitude.values[0], out.longitude.values[-1]) == (0.0, 20.0)
     assert out.attrs["param"] == "tp"
+    assert out.attrs["member"] == 2
     assert out.attrs["step"] == 12
     assert out.attrs["model_version"] == 2
     assert out.attrs["units"] == "kg m**-2"
@@ -95,6 +98,32 @@ def test_run_with_a_member_missing_from_the_index_is_refused(
 ) -> None:
     with pytest.raises(ValueError, match="tp"):
         aifs_ens.fetch_run(synthetic, grib_mirror.INCOMPLETE, ALPS)
+
+
+@pytest.mark.parametrize(
+    "other",
+    [{"param": "cp", "number": "1"}, {"param": "tp", "number": "2"}],
+    ids=["another parameter", "another member"],
+)
+def test_index_entry_that_points_at_another_message_is_refused(
+    synthetic: DictConfig, tmp_path: Path, other: dict[str, str]
+) -> None:
+    mirror = tmp_path / "mirror"
+    grib_mirror.write_run(mirror, grib_mirror.COMPLETE, ("tp", "cp"), version=2)
+    index = next(mirror.rglob("*-6h-enfo-pf.index"))
+    entries = [json.loads(line) for line in index.read_text().splitlines()]
+    wanted = [{"param": "tp", "number": "1"}, other]
+    first, second = (
+        next(entry for entry in entries if want.items() <= entry.items())
+        for want in wanted
+    )
+    for key in ("_offset", "_length"):
+        first[key], second[key] = second[key], first[key]
+    index.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
+    OmegaConf.update(synthetic, "data.aifs_ens.base_urls", [mirror.as_posix()])
+
+    with pytest.raises(ValueError, match="unexpected"):
+        aifs_ens.fetch_run(synthetic, grib_mirror.COMPLETE, ALPS)
 
 
 def test_deaccumulate_gives_totals_per_step() -> None:
