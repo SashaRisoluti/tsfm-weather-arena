@@ -1,9 +1,11 @@
 import csv
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
+import xarray as xr
 from omegaconf import DictConfig
 
 from arena.data import aifs_archive, cache
@@ -101,6 +103,39 @@ def test_coverage_lists_every_init_time(synthetic: DictConfig) -> None:
         "available": "True",
         "has_cp": "True",
     }
+
+
+def test_open_cached_reads_one_stacked_store_until_the_runs_change(
+    synthetic: DictConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for init in (grib_mirror.VERSION_1, grib_mirror.COMPLETE):
+        aifs_archive.backfill(synthetic, init, init)
+    with cache.open_cached(synthetic, "aifs_ens") as ds:
+        assert ds.sizes["init_time"] == 2
+
+    opened: list[str] = []
+    real = xr.open_zarr
+
+    def spy(store: Any, *args: Any, **kwargs: Any) -> xr.Dataset:
+        opened.append(Path(store).name)
+        return real(store, *args, **kwargs)
+
+    monkeypatch.setattr(xr, "open_zarr", spy)
+    with cache.open_cached(synthetic, "aifs_ens") as ds:
+        assert ds.sizes["init_time"] == 2
+    assert len(opened) == 1
+
+    aifs_archive.backfill(synthetic, grib_mirror.FALLBACK, grib_mirror.FALLBACK)
+    with cache.open_cached(synthetic, "aifs_ens") as ds:
+        assert list(ds.init_time.values) == [
+            np.datetime64(grib_mirror.VERSION_1),
+            np.datetime64(grib_mirror.COMPLETE),
+            np.datetime64(grib_mirror.FALLBACK),
+        ]
+    stacks = list((cache.cache_root(synthetic) / "aifs_ens" / "stack").iterdir())
+    assert len(stacks) == 1
+    # the stack folder is not taken for a run
+    assert aifs_archive.update(synthetic, now=grib_mirror.COMPLETE) == []
 
 
 def test_open_cached_stacks_runs_and_keeps_the_model_version(

@@ -6,12 +6,14 @@ Layout under ``<cache_dir>/<region>/``::
     pardig/frames/YYYYMMDD.zarr     one day of 15-minute frames
     satweave/YYYYMMDD.zarr          one day of hourly frames
     aifs_ens/YYYYMMDDHH.zarr        one forecast run
+    aifs_ens/stack/<key>.zarr       all cached runs in one store, for reading
     static/elevation.zarr           terrain elevation of each cell
 
 Every store is written to a temporary folder and then renamed, so a store
 that exists is complete. Precipitation is stored in mm/h.
 """
 
+import hashlib
 import logging
 import shutil
 import uuid
@@ -214,6 +216,29 @@ def _open_run(cfg: DictConfig, store: Path) -> xr.Dataset:
     return run.expand_dims("init_time")
 
 
+def _run_stack(cfg: DictConfig, stores: list[Path]) -> Path:
+    """One store holding the given runs along ``init_time``.
+
+    Opening a thousand run stores one by one takes about 20 s, a single stack
+    well under one. The stack is named after the runs it holds, so it is
+    rebuilt only when a run is added, and an older stack is then removed.
+    """
+    names = "\n".join(store.name for store in stores)
+    key = hashlib.sha1(names.encode()).hexdigest()[:16]
+    folder = stores[0].parent / "stack"
+    path = folder / f"{key}.zarr"
+    if not path.exists():
+        runs = _concat([_open_run(cfg, s) for s in stores], dim="init_time")
+        write_atomic(runs.drop_encoding().chunk({"init_time": 16}), path)
+        for old in folder.glob("*.zarr"):
+            if old != path:
+                # shortcut: a stack still open elsewhere may be left half
+                # deleted; it is only read again if the same set of runs
+                # returns, so delete the stack folder by hand in that case.
+                shutil.rmtree(old, ignore_errors=True)
+    return path
+
+
 def open_cached(cfg: DictConfig, source: str) -> xr.Dataset:
     """Everything cached for ``source`` in the configured region, lazily."""
     root = cache_root(cfg) / source
@@ -226,5 +251,5 @@ def open_cached(cfg: DictConfig, source: str) -> xr.Dataset:
     if not stores:
         raise FileNotFoundError(f"nothing cached for {source} in {cfg.region.name}")
     if source == "aifs_ens":
-        return _concat([_open_run(cfg, s) for s in stores], dim="init_time")
+        return xr.open_zarr(_run_stack(cfg, stores), consolidated=False, chunks={})
     return _concat([xr.open_zarr(s, consolidated=False, chunks={}) for s in stores])
