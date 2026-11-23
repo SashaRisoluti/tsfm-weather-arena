@@ -10,7 +10,7 @@ STRATA = ("sea", "coast", "plains", "pre_alps", "alps")
 def strata(elevation: xr.DataArray, cfg: DictConfig) -> xr.DataArray:
     """Label every grid cell with the index of its stratum in ``STRATA``.
 
-    Land is split by cell-mean elevation into plains, pre-Alps and Alps;
+    Land is split by elevation into plains, pre-Alps and Alps;
     lowland within ``coast_distance_deg`` of the sea is coast instead.
     """
     settings = cfg.data.strata

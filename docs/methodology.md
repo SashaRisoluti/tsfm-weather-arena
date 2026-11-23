@@ -42,15 +42,21 @@ Three properties of the target limit what the results can claim.
    *s* + 90 min, and is published 2 to 8 hours after *s*. A model that is
    given the target history up to its issue time is thus given information a
    real-time system would not have. The benchmark is a hindcast. For the
-   nowcasting regime, a sensitivity run cuts the target history 90 minutes
-   before the issue time, and its results are reported next to the main ones.
-
-3. **The target is weak in high terrain.** Over 2016–2025 the product gives
-   less precipitation above 1000 m than over the plains (about 670 mm against
-   1000 mm a year in this region), the opposite of what rain-gauge
-   climatologies show along the Alpine rim. Its documentation reports lower
-   skill over the Alps and for snowfall. Scores in the Alps stratum measure
-   agreement with this product rather than with the ground.
+   nowcasting regime, the evaluation protocol includes a sensitivity run that
+   cuts the target history 90 minutes before the issue time; its results will
+   be reported next to the main ones.
+3. **The target is probably too dry in high terrain.** Over 2016–2025 the
+   product gives less precipitation above 1000 m than over the plains (about
+   670 mm against 1000 mm a year in this region). Mountains normally receive
+   more precipitation than the plains next to them, so this is read as an
+   underestimate. It was not checked here against gauge or radar data. The
+   product paper reports that at some high-elevation stations, in the Alps
+   among other ranges, its skill falls below that of a gauge-adjusted
+   satellite product, and that it gives too little winter precipitation
+   relative to summer over the European Alps; it names the limited
+   sensitivity of the satellite radar to light snowfall as a possible cause.
+   Scores in the Alps stratum measure agreement with this product rather
+   than with the ground.
 
 ### Satellite covariates: SatWeave
 
@@ -69,10 +75,12 @@ Three properties of the target limit what the results can claim.
 - **What.** The AIFS ensemble is ECMWF's machine-learning ensemble forecast:
   51 members, four runs a day, 6-hour steps to 15 days, distributed as open
   data on a 0.25° grid (17 × 33 points over the region).
-- **Archive.** Public mirrors hold every run since the first operational one,
-  2025-07-01 06 UTC. Only the precipitation messages of each run are
-  downloaded, by byte range, and cut to the region. Runs at 00 and 12 UTC are
-  archived, for steps 6 to 60 h.
+- **Archive.** Public mirrors keep past runs from the first operational one,
+  2025-07-01 06 UTC. A scan on 2026-11-20 found all 1,014 runs at 00 and
+  12 UTC; the other runs were not checked. Only the precipitation messages
+  of each run are downloaded, by byte range, and cut to the region. Each
+  message is checked against its index entry (parameter, member, step,
+  units). Runs at 00 and 12 UTC are archived, for steps 6 to 60 h.
 - **Variables.** Total precipitation `tp` and convective precipitation `cp`,
   in mm accumulated from the start of the run. Totals per 6-hour step are
   differences between consecutive steps; small negative differences, which
@@ -80,8 +88,9 @@ Three properties of the target limit what the results can claim.
 - **Model versions.** Runs up to 2026-05-12 00 UTC come from version 1 and
   later runs from version 2. The version of every archived run is read from
   the GRIB header (`generatingProcessIdentifier`) and kept with it. `cp`
-  exists only from version 2. From 2026-10-20 the published `tp` is packed
-  with fewer bits, which coarsens its resolution to roughly 0.1 mm.
+  exists only from version 2. From 2026-10-20 12 UTC the published `tp` is
+  packed with 12 bits instead of 16, so its resolution is 16 times coarser
+  for the same range of values.
 - **Availability.** ECMWF's schedule puts dissemination about 6 h 40 min to
   7 h 40 min after the nominal run time, and later arrivals were observed on
   the mirrors. A run is treated as usable 12 hours after its nominal time. At
@@ -92,23 +101,27 @@ Three properties of the target limit what the results can claim.
 ### Elevation and terrain strata
 
 Terrain height comes from the Copernicus DEM GLO-90, read through the
-Open-Meteo elevation API at the centre of each grid cell. Cells are grouped
-into sea, coast (land below 300 m within 0.3° of the sea), plains (other land
-below 300 m), pre-Alps (300 to 1000 m) and Alps (1000 m and above). A point
+Open-Meteo elevation API at the centre of each grid cell. Sea is where the
+elevation model gives exactly 0 m, its value over the sea; lagoons and any land
+at exactly 0 m fall in the same class. The other cells are grouped into coast
+(land below 300 m within 0.3° of the sea), plains (other land below 300 m),
+pre-Alps (300 to 1000 m) and Alps (1000 m and above). A point
 sample is a noisy summary of a 10 km cell in steep terrain, so cells near a
 threshold may be assigned to either side.
 
 ### Splits
 
-Windows are defined on issue times, with inclusive dates. A sample whose
-target would reach into the next window is dropped (48-hour embargo).
+The windows are fixed in the configuration before any model is trained; the
+code that applies them is added with the models and the evaluation. Windows
+are defined on issue times, with inclusive dates. A sample whose target would
+reach into the next window is dropped (48-hour embargo).
 
 | Models | Training | Validation | Test |
 |---|---|---|---|
 | Time-series foundation models and baselines | 2016-01-01 – 2024-12-31 | 2025-01-01 – 2025-12-31 | 2026-05-13 – 2026-11-15 |
 | Models that use forecast covariates | 2025-07-02 – 2026-03-31 | 2026-04-01 – 2026-05-12 | 2026-05-13 – 2026-11-15 |
 
-All models are scored on the same test window and the same locations. The
+All models will be scored on the same test window and the same locations. The
 test window lies entirely in forecast model version 2. Models that use
 forecast covariates can only be trained where forecasts exist, so their
 training and validation data come from version 1 and do not include `cp`;
@@ -119,5 +132,9 @@ the size of that mismatch is part of what is measured.
 Regional subsets are kept under `data/cache/<region>/`, one store per unit of
 work: the precipitation archive, one day of frames, one forecast run. A store
 is written to a temporary folder and renamed, so a store that exists is
-complete. A day with missing frames is not cached unless gaps are explicitly
-allowed, in which case the missing steps are empty and counted.
+complete. Two writers of the same store do not disturb each other: the first
+to finish wins. A day with missing frames is not cached unless gaps are
+explicitly allowed, in which case the missing steps are counted. A step is
+missing as soon as one of its variables has no data. A read that fails is
+never recorded as a gap: the day or run is left for the next run of the
+command.

@@ -6,7 +6,7 @@ Layout under ``<cache_dir>/<region>/``::
     pardig/frames/YYYYMMDD.zarr     one day of 15-minute frames
     satweave/YYYYMMDD.zarr          one day of hourly frames
     aifs_ens/YYYYMMDDHH.zarr        one forecast run
-    static/elevation.zarr           cell-mean terrain elevation
+    static/elevation.zarr           terrain elevation of each cell
 
 Every store is written to a temporary folder and then renamed, so a store
 that exists is complete. Precipitation is stored in mm/h.

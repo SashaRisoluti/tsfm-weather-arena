@@ -50,8 +50,9 @@ aifs_ens:
 # Copernicus DEM GLO-90 through the Open-Meteo elevation API (free tier).
 elevation:
   url: https://api.open-meteo.com/v1/elevation
-  # Points per cell side. One samples the cell centre; the free tier allows
-  # roughly 1000 points a minute, so finer sampling takes days for a region.
+  # Points per cell side. One samples the cell centre; the free tier refused
+  # requests after about 600 points a minute, so finer sampling takes days
+  # for a region.
   subsamples: 1
   batch_size: 100
   # A longer wait asked by the service means an hourly or daily limit: stop.

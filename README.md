@@ -46,7 +46,8 @@ All sources are read anonymously over HTTPS; no account or key is needed.
 
 The commands below fill a local cache under `data/cache/` with the study
 region only. They skip what is already cached, so they can be interrupted and
-run again.
+run again. A day or a run whose download fails is skipped with a warning and
+fetched the next time the command runs.
 
 ```bash
 uv run arena data pardig-archive                                       # 2016-2025 target
@@ -54,7 +55,7 @@ uv run arena data days pardig   --start 2026-01-01 --end 2026-11-17   # later ta
 uv run arena data days satweave --start 2025-01-01 --end 2026-11-17   # satellite bands
 uv run arena data elevation
 uv run arena archive backfill --start 2025-07-01 --end 2026-11-17     # forecast runs
-uv run arena archive update                                            # runs published since
+uv run arena archive update                                            # runs still missing
 ```
 
 The satellite and forecast files are global, so far more is transferred than
