@@ -143,3 +143,12 @@ def test_aifs_reference_serves_stored_runs_as_quantiles_at_the_context_points() 
     np.testing.assert_allclose(out.sel(quantile=0.05).values, 1.1)
     with pytest.raises(ValueError, match="6 h"):
         model.predict(context, None, datetime(2026, 6, 2, 0), [timedelta(hours=3)])
+
+
+def test_extrapolation_ignores_an_implausibly_fast_motion() -> None:
+    # 20 cells east in an hour is about 160 km/h at 45 N: treated as noise
+    times = pd.date_range("2025-07-15T11:00", "2025-07-15T12:00", freq="15min")
+    frames = np.stack([blob(20, 40, 10, 5)] * 4 + [blob(20, 40, 10, 25)])
+    context = grid_frames(times, frames)
+    out = Extrapolation().predict(context, None, ISSUE, [timedelta(minutes=30)])
+    np.testing.assert_allclose(out.sel(quantile=0.5).isel(lead=0).values, frames[-1])

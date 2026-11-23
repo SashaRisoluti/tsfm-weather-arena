@@ -3,7 +3,8 @@
 One motion vector per issue time, found by phase correlation between the
 frames one hour and zero hours before the issue. The last frame is shifted
 by that motion times the lead, in whole cells; cells with no upstream data
-keep their last value. Rain neither grows nor decays.
+keep their last value. Rain neither grows nor decays. A motion faster
+than 120 km/h is treated as noise and the frame is not moved.
 """
 
 from collections.abc import Sequence
@@ -18,6 +19,9 @@ from arena.models.base import check_context, lead_coord, point_quantiles
 # Below this rate (mm/h) everywhere, a frame carries no motion.
 _RAIN = 0.1
 _BASE = timedelta(hours=1)
+# A faster motion is taken for noise (new cells, several systems) and ignored.
+_MAX_KM_PER_HOUR = 120.0
+_KM_PER_DEGREE = 111.2
 
 
 def motion(before: np.ndarray, after: np.ndarray) -> tuple[int, int]:
@@ -78,6 +82,12 @@ class Extrapolation:
         rows, cols = 0, 0
         if earlier.any():
             rows, cols = motion(frames.values[np.flatnonzero(earlier)[0]], last)
+            lat = frames.latitude.values
+            dlat = float(np.diff(lat).mean())
+            dlon = float(np.diff(frames.longitude.values).mean())
+            km_east = cols * dlon * _KM_PER_DEGREE * np.cos(np.radians(lat.mean()))
+            if np.hypot(rows * dlat * _KM_PER_DEGREE, km_east) > _MAX_KM_PER_HOUR:
+                rows, cols = 0, 0
         moved = [
             _shift(last, round(rows * (lead / _BASE)), round(cols * (lead / _BASE)))
             for lead in leads
