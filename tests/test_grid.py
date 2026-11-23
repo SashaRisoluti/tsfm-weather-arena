@@ -47,6 +47,19 @@ def test_a_fine_cell_straddling_two_coarse_cells_takes_their_mean() -> None:
     np.testing.assert_allclose(out.isel(latitude=0).values[:3], [1.0, 1.0, 2.0])
 
 
+def test_latitude_weights_follow_area_on_the_sphere() -> None:
+    # Source rows 0-30, 30-60, 60-90 degrees; target rows 0-45 and 45-90.
+    src = field(
+        np.array([[1.0, 1.0], [3.0, 3.0], [5.0, 5.0]]),
+        np.array([15.0, 45.0, 75.0]),
+        np.array([0.5, 1.5]),
+    )
+    out = conservative_regrid(src, np.array([22.5, 67.5]), np.array([0.5, 1.5]))
+    s30, s45 = 0.5, np.sqrt(2) / 2
+    expected = (s30 * 1.0 + (s45 - s30) * 3.0) / s45
+    np.testing.assert_allclose(out.values[0], expected, rtol=1e-12)
+
+
 def test_target_cells_outside_the_source_are_refused() -> None:
     src = field(np.ones((4, 4)), 44 + COARSE, COARSE)
     with pytest.raises(ValueError, match="longitude"):

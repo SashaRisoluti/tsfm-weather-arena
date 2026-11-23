@@ -21,6 +21,24 @@ def test_onset_needs_rain_after_dry_hours() -> None:
     assert got.dtype == bool
 
 
+def test_hours_absent_from_the_axis_are_not_dry() -> None:
+    time = pd.to_datetime(["2025-07-15T00:00", "2025-07-15T01:00", "2025-07-15T10:00"])
+    rate = xr.DataArray([0.0, 0.0, 2.0], dims="time", coords={"time": time})
+    got = onsets(rate, threshold=1.0, dry=0.1, dry_hours=2)
+    assert list(got.time.values) == list(time.values)
+    assert not bool(got.any())
+
+
+def test_lagged_correlation_counts_lags_in_hours_across_holes() -> None:
+    rng = np.random.default_rng(2)
+    x = hourly(list(rng.normal(size=480)))
+    y = x.shift(time=2)
+    # keep six hours, drop six hours, over and over
+    kept = (np.arange(480) // 6) % 2 == 0
+    corr = lagged_correlation(x.isel(time=kept), y.isel(time=kept), lags=[2])
+    np.testing.assert_allclose(corr.sel(lag=2), 1.0)
+
+
 def test_lagged_correlation_peaks_at_the_lead_of_x() -> None:
     rng = np.random.default_rng(1)
     x = hourly(list(rng.normal(size=500)))

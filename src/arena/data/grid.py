@@ -78,8 +78,8 @@ def conservative_regrid(
     """Remap ``da`` to the cells centred on ``latitude`` x ``longitude``.
 
     Both grids must be regular and ascending, and every target cell must lie
-    inside the source grid. Fields must be complete: a missing value spreads
-    to every target cell in its source row and column.
+    inside the source grid. Fields must be complete: a single missing value
+    makes the whole result missing.
     """
     w_lat = xr.DataArray(
         _weights(da.latitude.values, np.asarray(latitude), _sin_lat, "latitude"),

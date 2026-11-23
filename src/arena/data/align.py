@@ -49,7 +49,9 @@ def nwp_as_of(
     init = latest_available_init(cfg, issue)
     if np.datetime64(init) not in runs.init_time.values:
         raise KeyError(f"run {init:%Y-%m-%d %Hz} is not cached")
-    offset = int((issue - init) / timedelta(hours=1))
+    if (issue - init) % timedelta(hours=1):
+        raise ValueError("issue time must be whole hours after a run")
+    offset = (issue - init) // timedelta(hours=1)
     steps = [offset + int(lead) for lead in leads_hours]
     missing = sorted(set(steps) - set(runs.step.values.tolist()))
     if missing:

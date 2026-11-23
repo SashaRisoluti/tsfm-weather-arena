@@ -14,8 +14,11 @@ def onsets(
 ) -> xr.DataArray:
     """True where an hourly ``rate`` (mm/h) reaches ``threshold`` after
     ``dry_hours`` hours all below ``dry``. A missing hour is not dry."""
-    before = rate.shift(time=1).rolling(time=dry_hours).max()
-    return ((rate >= threshold) & (before < dry)).astype(bool)
+    # On a regular hourly axis, so that an hour absent from the data is missing.
+    hourly = rate.resample(time="1h").asfreq()
+    before = hourly.shift(time=1).rolling(time=dry_hours).max()
+    started = (hourly >= threshold) & (before < dry)
+    return started.sel(time=rate.time).astype(bool)
 
 
 def lagged_correlation(
@@ -23,9 +26,11 @@ def lagged_correlation(
 ) -> xr.DataArray:
     """Pearson correlation of x(t - lag) with y(t), pooled over all dimensions.
 
-    ``lag`` counts time steps; a positive lag means x leads y. Pairs with a
-    missing value are skipped.
+    ``lag`` counts hours; a positive lag means x leads y. Both series are put
+    on a regular hourly axis first, and pairs with a missing value are skipped.
     """
     lags = list(lags)
-    values = [float(xr.corr(x.shift(time=lag), y.astype(float))) for lag in lags]
+    x = x.resample(time="1h").asfreq()
+    y = y.astype(float).resample(time="1h").asfreq()
+    values = [float(xr.corr(x.shift(time=lag), y)) for lag in lags]
     return xr.DataArray(values, dims="lag", coords={"lag": lags})

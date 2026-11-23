@@ -57,6 +57,8 @@ class AifsEnsConvective:
     def compute(self, ds: xr.Dataset) -> xr.Dataset:
         tp, cp = ds.tp.mean("member"), ds.cp.mean("member")
         share = (cp / tp).clip(0.0, 1.0).where(tp >= _WET_MM, 0.0)
+        # Without cp (model version 1) the share is unknown, wet or dry.
+        share = share.where(tp.notnull() & cp.notnull())
         return xr.Dataset({"cp_fraction": share})
 
 
@@ -73,5 +75,8 @@ def forecast_covariates(
     """
     forecast = nwp_as_of(runs, issue, leads_hours, cfg)
     lat, lon = common_grid(Region.from_config(cfg.region), float(cfg.data.grid_step))
-    fine = forecast.map(lambda var: conservative_regrid(var, lat, lon))
+    gridded = [
+        name for name, var in forecast.data_vars.items() if "latitude" in var.dims
+    ]
+    fine = forecast[gridded].map(lambda var: conservative_regrid(var, lat, lon))
     return covariates(fine, names)

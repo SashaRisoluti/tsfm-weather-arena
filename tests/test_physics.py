@@ -68,6 +68,7 @@ class CloudTopDummy:
 def test_a_provider_registered_later_flows_into_the_covariates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    base.provider_names()  # load the built-in providers before isolating the registry
     monkeypatch.setattr(base, "PROVIDERS", dict(base.PROVIDERS))
     base.register(CloudTopDummy)
     ds = satellite([280.0, 270.0], [230.0, 228.0], HOURS[:2])
@@ -78,6 +79,17 @@ def test_a_provider_registered_later_flows_into_the_covariates(
     flags = dict(zip(out.feature.values, out.known_future.values, strict=True))
     assert not flags["cloud_top_km"]
     assert flags["cos_zenith"]
+
+
+def test_a_name_already_taken_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    base.provider_names()
+    monkeypatch.setattr(base, "PROVIDERS", dict(base.PROVIDERS))
+
+    class Impostor(CloudTopDummy):
+        name: ClassVar[str] = "solar"
+
+    with pytest.raises(ValueError, match="solar"):
+        base.register(Impostor)
 
 
 def test_unknown_provider_and_missing_input_are_refused() -> None:
@@ -115,6 +127,19 @@ def test_noon_zenith_matches_the_textbook(
     assert zenith == pytest.approx(expected, abs=0.5)
     # at the Greenwich meridian solar noon is within a quarter hour of 12 UTC
     assert abs((when - pd.Timestamp(f"{day}T12:00")).total_seconds()) < 15 * 60
+
+
+def test_solar_noon_moves_with_longitude_and_the_equation_of_time() -> None:
+    times = pd.date_range("2025-11-03T00:00", periods=24 * 60, freq="1min")
+    east = cos_solar_zenith(times.values, np.array([45.0]), np.array([90.0]))[:, 0, 0]
+    greenwich = cos_solar_zenith(times.values, np.array([45.0]), np.array([0.0]))[
+        :, 0, 0
+    ]
+    # the equation of time is about +16.4 min in early November
+    noon = times[int(np.argmax(greenwich))]
+    assert pd.Timestamp("2025-11-03T11:41") <= noon <= pd.Timestamp("2025-11-03T11:47")
+    # 90 degrees east is six hours earlier
+    assert times[int(np.argmax(east))] == noon - pd.Timedelta(hours=6)
 
 
 def test_solar_covariates_are_known_in_advance_and_bounded() -> None:

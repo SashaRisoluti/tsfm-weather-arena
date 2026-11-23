@@ -52,6 +52,12 @@ def test_convective_fraction_is_zero_where_the_forecast_is_dry() -> None:
     np.testing.assert_allclose(dry.sel(feature="cp_fraction").values, 0.0)
 
 
+def test_convective_fraction_is_missing_where_an_input_is_missing() -> None:
+    # a version 1 run has no cp; a dry forecast must not hide that as 0
+    out = base.covariates(ensemble([0.0, 0.05], [np.nan, np.nan]), ["aifs_ens_cp"])
+    assert bool(out.isnull().all())
+
+
 def test_forecast_covariates_on_the_common_grid() -> None:
     cfg = load_config()
     region = Region.from_config(cfg.region)
@@ -72,6 +78,8 @@ def test_forecast_covariates_on_the_common_grid() -> None:
             "longitude": lon,
         },
     )
+    # as in the cached stack, which also records the model version of each run
+    runs["model_version"] = ("init_time", [2, 2])
     out = forecast_covariates(runs, datetime(2026, 6, 2, 0), [6, 48], cfg, ["aifs_ens"])
     fine_lat, fine_lon = common_grid(region, cfg.data.grid_step)
     assert out.sizes == {

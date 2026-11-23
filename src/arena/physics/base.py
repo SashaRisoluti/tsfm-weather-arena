@@ -34,7 +34,13 @@ _BUILT_IN = (
 
 
 def register(cls: type[FeatureProvider]) -> type[FeatureProvider]:
-    """Class decorator that makes a provider selectable by its name."""
+    """Class decorator that makes a provider selectable by its name.
+
+    Raises ``ValueError`` if another provider already has that name.
+    """
+    taken = PROVIDERS.get(cls.name)
+    if taken is not None and taken is not cls:
+        raise ValueError(f"a feature provider named {cls.name!r} already exists")
     PROVIDERS[cls.name] = cls
     return cls
 

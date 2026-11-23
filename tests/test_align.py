@@ -98,6 +98,11 @@ def test_nwp_as_of_at_00_utc_uses_the_run_twelve_hours_earlier() -> None:
     assert out.tp.dims == ("member", "lead")
 
 
+def test_nwp_as_of_refuses_an_issue_between_whole_hours() -> None:
+    with pytest.raises(ValueError, match="whole hours"):
+        nwp_as_of(forecast_runs(), datetime(2026, 6, 2, 0, 30), [6], CFG)
+
+
 def test_nwp_as_of_refuses_a_run_that_is_not_cached() -> None:
     with pytest.raises(KeyError, match="2026-06-05"):
         nwp_as_of(forecast_runs(), datetime(2026, 6, 6, 0), [6], CFG)
