@@ -1,4 +1,4 @@
-"""Command-line entry point: ``arena data ...`` and ``arena archive ...``."""
+"""Command-line entry point: ``arena data|archive|eval ...``."""
 
 import logging
 from datetime import datetime
@@ -6,16 +6,21 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+import xarray as xr
 
 from arena.config import load_config
 from arena.data import aifs_archive, cache
-from arena.paths import rel
+from arena.data.sampling import eval_pixels, strata
+from arena.eval import runner
+from arena.paths import project_path, rel
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 data_app = typer.Typer(no_args_is_help=True, help="Fill the regional data cache.")
 archive_app = typer.Typer(no_args_is_help=True, help="Archive ensemble forecast runs.")
 app.add_typer(data_app, name="data")
+eval_app = typer.Typer(no_args_is_help=True, help="Score forecasts.")
 app.add_typer(archive_app, name="archive")
+app.add_typer(eval_app, name="eval")
 
 Overrides = Annotated[
     list[str] | None,
@@ -69,6 +74,25 @@ def days(
 def elevation(override: Overrides = None) -> None:
     """Fetch the terrain elevation of the region."""
     _report([cache.cache_elevation(load_config(override or []))])
+
+
+@data_app.command("eval-pixels")
+def eval_pixels_file(override: Overrides = None) -> None:
+    """Draw the fixed evaluation pixels from the cached terrain."""
+    cfg = load_config(override or [])
+    store = cache.cache_root(cfg) / "static" / "elevation.zarr"
+    with xr.open_zarr(store, consolidated=False) as ds:
+        labels = strata(ds.elevation.load(), cfg)
+    path = project_path(str(cfg.eval.pixels.file).format(region=cfg.region.name))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    eval_pixels(labels, cfg).to_csv(path, index=False)
+    _report([path])
+
+
+@eval_app.command("smoke")
+def smoke(override: Overrides = None) -> None:
+    """Score the baselines on a few validation days."""
+    _report([runner.smoke_regime_a(load_config(override or []))])
 
 
 @archive_app.command("backfill")

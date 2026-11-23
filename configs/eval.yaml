@@ -1,0 +1,26 @@
+# @package eval
+
+# Fixed evaluation pixels: the grid is cut into blocks of block_cells x
+# block_cells; a share of the blocks, drawn once with the seed, is held out.
+# Evaluation pixels come from held-out blocks only, training pixels from the
+# others, so neighbouring cells never sit on both sides.
+pixels:
+  block_cells: 5
+  eval_fraction: 0.25
+  eval_per_stratum: 40
+  seed: 2026
+  # Relative to the project root; one file per region.
+  file: "configs/pixels/{region}_eval.csv"
+
+# Event thresholds: mm/h for the 15-minute regime, the same rates times
+# 6 hours for the 6-hour totals.
+thresholds:
+  regime_a: [0.1, 1.0, 5.0]
+  regime_b: [0.6, 6.0, 30.0]
+
+# Quick check of the baselines on a few validation days (15-minute regime).
+smoke:
+  days: ["2025-07-15", "2025-07-16", "2025-07-17"]
+  leads_minutes: [15, 30, 60, 120, 180, 360]
+  context_hours: 2
+  output: results/summary/smoke_regime_a.csv

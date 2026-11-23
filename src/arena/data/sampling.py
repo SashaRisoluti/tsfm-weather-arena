@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 from omegaconf import DictConfig
 
@@ -78,3 +79,38 @@ def split_of(issue: datetime, cfg: DictConfig, family: str) -> str | None:
         if start <= issue < end:
             return name if issue + embargo <= end else None
     return None
+
+
+def held_out_blocks(labels: xr.DataArray, cfg: DictConfig) -> xr.DataArray:
+    """True on the cells of the blocks held out for evaluation.
+
+    The grid is cut into square blocks of ``block_cells`` cells a side, and a
+    share ``eval_fraction`` of them is drawn once with the configured seed.
+    """
+    settings = cfg.eval.pixels
+    block = int(settings.block_cells)
+    rows, cols = np.indices(labels.shape)
+    ids = (rows // block) * (labels.shape[1] // block + 1) + cols // block
+    unique = np.unique(ids)
+    count = round(float(settings.eval_fraction) * unique.size)
+    rng = np.random.default_rng(int(settings.seed))
+    chosen = rng.choice(unique, size=count, replace=False)
+    return labels.copy(data=np.isin(ids, chosen)).rename("held_out")
+
+
+def eval_pixels(labels: xr.DataArray, cfg: DictConfig) -> pd.DataFrame:
+    """The fixed evaluation pixels: ``eval_per_stratum`` cells of each
+    stratum drawn from the held-out blocks, or all of them if fewer."""
+    settings = cfg.eval.pixels
+    held = held_out_blocks(labels, cfg).values
+    rows = []
+    for index, name in enumerate(STRATA):
+        cells = np.argwhere(held & (labels.values == index))
+        rng = np.random.default_rng([int(settings.seed), index])
+        size = min(int(settings.eval_per_stratum), len(cells))
+        picked = cells[np.sort(rng.choice(len(cells), size=size, replace=False))]
+        for row, col in picked:
+            lat = float(labels.latitude.values[row])
+            lon = float(labels.longitude.values[col])
+            rows.append((lat, lon, name))
+    return pd.DataFrame(rows, columns=["latitude", "longitude", "stratum"])

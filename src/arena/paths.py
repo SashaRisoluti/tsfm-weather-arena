@@ -24,3 +24,9 @@ def rel(path: str | os.PathLike[str]) -> str:
     except ValueError:
         # pathlib's own message quotes both absolute paths
         raise ValueError("path is outside the project root") from None
+
+
+def project_path(text: str) -> Path:
+    """A configured path: relative ones are taken from the project root."""
+    path = Path(text)
+    return path if path.is_absolute() else project_root() / path

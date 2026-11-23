@@ -55,3 +55,12 @@ def test_rel_outside_root_error_names_no_path(root: Path, tmp_path: Path) -> Non
     with pytest.raises(ValueError) as excinfo:
         rel(root / ".." / "elsewhere" / "x.nc")
     assert tmp_path.name not in str(excinfo.value)
+
+
+def test_project_path_resolves_against_the_root_and_keeps_absolute_paths(
+    tmp_path: Path,
+) -> None:
+    from arena.paths import project_path, project_root
+
+    assert project_path("configs/x.csv") == project_root() / "configs" / "x.csv"
+    assert project_path(str(tmp_path / "y.csv")) == tmp_path / "y.csv"
