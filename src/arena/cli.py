@@ -79,7 +79,7 @@ def backfill(start: Start, end: End, override: Overrides = None) -> None:
 
 @archive_app.command("update")
 def update(override: Overrides = None) -> None:
-    """Cache the runs disseminated since the newest cached one."""
+    """Cache the runs still missing since the oldest cached one."""
     _report(aifs_archive.update(load_config(override or [])))
 
 

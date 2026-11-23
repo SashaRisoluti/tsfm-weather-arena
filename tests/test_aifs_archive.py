@@ -66,7 +66,7 @@ def test_backfill_skips_cached_runs_and_survives_bad_ones(
     assert grib_mirror.COMPLETE not in asked and grib_mirror.FALLBACK not in asked
 
 
-def test_update_starts_after_the_newest_cached_run(
+def test_update_fetches_only_runs_that_are_not_cached(
     synthetic: DictConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     aifs_archive.backfill(synthetic, grib_mirror.COMPLETE, grib_mirror.COMPLETE)
@@ -74,6 +74,14 @@ def test_update_starts_after_the_newest_cached_run(
     written = aifs_archive.update(synthetic, now=datetime(2026, 6, 2, 1, 0))
     assert [p.name for p in written] == ["2026060112.zarr"]
     assert asked == [grib_mirror.FALLBACK]
+
+
+def test_update_retries_a_run_skipped_earlier(synthetic: DictConfig) -> None:
+    # a run between two cached ones was skipped, for example by a failed download
+    for init in (grib_mirror.VERSION_1, grib_mirror.FALLBACK):
+        aifs_archive.backfill(synthetic, init, init)
+    written = aifs_archive.update(synthetic, now=datetime(2026, 6, 2, 1, 0))
+    assert [p.name for p in written] == ["2026060100.zarr"]
 
 
 def test_coverage_lists_every_init_time(synthetic: DictConfig) -> None:

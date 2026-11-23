@@ -3,8 +3,8 @@
 ECMWF open data keeps past runs on public mirrors (Google Cloud and AWS)
 from the first operational run on 2025-07-01 06 UTC, with no stated
 retention. ``backfill`` copies a range of runs into the local cache and
-``update`` catches up from the newest cached run to the newest disseminated
-one, so the archive grows whenever the command is run.
+``update`` fetches every run missing between the oldest cached run and the
+newest disseminated one, so the archive grows whenever the command is run.
 """
 
 import csv
@@ -71,14 +71,18 @@ def backfill(cfg: DictConfig, start: datetime, end: datetime) -> list[Path]:
 
 
 def update(cfg: DictConfig, now: datetime | None = None) -> list[Path]:
-    """Cache the runs disseminated since the newest cached one."""
+    """Cache the runs missing from the oldest cached one to the newest
+    disseminated one.
+
+    Starting at the oldest cached run, not the newest, gives a run that was
+    skipped once, for example by a failed download, another try.
+    """
     if now is None:
         now = datetime.now(UTC).replace(tzinfo=None)
     folder = cache.cache_root(cfg) / "aifs_ens"
     cached = sorted(folder.glob("*.zarr"))
     if cached:
-        newest = datetime.strptime(cached[-1].stem, "%Y%m%d%H")
-        start = newest + timedelta(hours=1)
+        start = datetime.strptime(cached[0].stem, "%Y%m%d%H")
     else:
         start = datetime.fromisoformat(cfg.data.aifs_ens.first_init)
     return backfill(cfg, start, latest_available_init(cfg, now))
