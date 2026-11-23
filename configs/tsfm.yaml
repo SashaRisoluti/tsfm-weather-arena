@@ -4,6 +4,8 @@
 device: auto
 # Series per TimesFM 3 forward pass (about 1.5 GB of GPU memory at 64).
 timesfm3_batch_size: 64
+# Pixels per Timestral request.
+timestral_batch_size: 50
 
 checkpoints:
   timesfm3: google/timesfm-3.0-pytorch

@@ -18,8 +18,14 @@ from arena.paths import project_root
 
 class TimestralBackend:
     def __init__(
-        self, repo_id: str, device: str = "cpu", command: list[str] | None = None
+        self,
+        repo_id: str,
+        device: str = "cpu",
+        command: list[str] | None = None,
+        batch_size: int = 64,
     ) -> None:
+        # Pixels per request; all 200 at once run out of memory on a 6 GB GPU.
+        self.batch_size = batch_size
         if command is None:
             project = project_root() / "external" / "timestral"
             command = [
@@ -62,6 +68,26 @@ class TimestralBackend:
         known: np.ndarray | None,
         horizon: int,
     ) -> tuple[np.ndarray, Sequence[float]]:
+        chunks = []
+        for start in range(0, len(context), self.batch_size):
+            part = slice(start, start + self.batch_size)
+            chunks.append(
+                self._request(
+                    context[part],
+                    None if past is None else past[part],
+                    None if known is None else known[part],
+                    horizon,
+                )
+            )
+        return np.concatenate(chunks), self.levels
+
+    def _request(
+        self,
+        context: np.ndarray,
+        past: np.ndarray | None,
+        known: np.ndarray | None,
+        horizon: int,
+    ) -> np.ndarray:
         self._count += 1
         folder = Path(self._folder.name)
         request = folder / f"request-{self._count}.npz"
@@ -82,7 +108,7 @@ class TimestralBackend:
         with np.load(reply) as data:
             quantiles = data["quantiles"]
         reply.unlink()
-        return quantiles, self.levels
+        return quantiles
 
     def close(self) -> None:
         if self._process.stdin is not None:

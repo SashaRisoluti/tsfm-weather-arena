@@ -232,3 +232,19 @@ def test_timesfm3_backend_passes_the_batch_size(
         "device": "cuda",
         "per_core_batch_size": 64,
     }
+
+
+def test_timestral_backend_sends_pixels_in_chunks(tmp_path: Path) -> None:
+    script = tmp_path / "bridge.py"
+    script.write_text(FAKE_BRIDGE)
+    backend = TimestralBackend(
+        "any/model", "cpu", command=[sys.executable, str(script)], batch_size=2
+    )
+    try:
+        context = np.arange(30, dtype="float32").reshape(5, 1, 6)
+        q, _ = backend.forecast(context, None, None, horizon=3)
+        assert backend._count == 3  # 2 + 2 + 1 pixels
+        assert q.shape == (5, 1, 3, 3)
+        np.testing.assert_allclose(q[:, 0, 0, 1], context[:, 0, -1] + 0.5)
+    finally:
+        backend.close()

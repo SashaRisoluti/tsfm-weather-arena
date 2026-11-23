@@ -160,7 +160,11 @@ def _backends(cfg: DictConfig) -> Iterator[Callable[[str], Any]]:
             else:
                 from arena.models.tsfm.timestral import TimestralBackend
 
-                loaded[model] = TimestralBackend(checkpoint, device=_device(cfg))
+                loaded[model] = TimestralBackend(
+                    checkpoint,
+                    device=_device(cfg),
+                    batch_size=int(cfg.tsfm.timestral_batch_size),
+                )
         return loaded[model]
 
     try:
