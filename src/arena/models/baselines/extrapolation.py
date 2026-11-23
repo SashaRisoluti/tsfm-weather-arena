@@ -29,12 +29,14 @@ def motion(before: np.ndarray, after: np.ndarray) -> tuple[int, int]:
     size = np.abs(cross)
     cross = np.divide(cross, size, out=np.zeros_like(cross), where=size > 0)
     surface = np.fft.ifft2(cross).real
-    row, col = np.unravel_index(int(np.argmax(surface)), surface.shape)
+    peak = np.unravel_index(int(np.argmax(surface)), surface.shape)
     rows, cols = surface.shape
+    row, col = int(peak[0]), int(peak[1])
     # Peaks past half the field are negative shifts.
-    row = int(row) - rows if row > rows // 2 else int(row)
-    col = int(col) - cols if col > cols // 2 else int(col)
-    return row, col
+    return (
+        row - rows if row > rows // 2 else row,
+        col - cols if col > cols // 2 else col,
+    )
 
 
 def _shift(field: np.ndarray, rows: int, cols: int) -> np.ndarray:
