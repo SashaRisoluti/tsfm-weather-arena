@@ -93,6 +93,21 @@ uv run mypy
 
 Tests run offline on small synthetic stores shaped like the real ones.
 
+### Foundation models
+
+The foundation models are an optional dependency group, and Timestral runs in
+its own environment:
+
+```bash
+uv sync --group tsfm
+uv sync --project external/timestral
+uv run arena run zero-shot --regime a --split smoke
+```
+
+They use a CUDA GPU when one is present (`tsfm.device=cpu` forces the CPU).
+For a free GPU, [notebooks/colab_zero_shot.ipynb](notebooks/colab_zero_shot.ipynb)
+runs the same command on Colab with the score parts kept on Google Drive.
+
 ## Licence and attribution
 
 Code is released under the MIT licence (see [LICENSE](LICENSE)). Data sources
