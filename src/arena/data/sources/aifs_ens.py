@@ -190,12 +190,14 @@ def deaccumulate(ds: xr.Dataset) -> xr.Dataset:
     steps = ds.step.values
     if np.any(np.diff(steps) != steps[0]):
         raise ValueError("steps must be contiguous from one interval after the start")
+    # Variables without steps, such as the model version, are left as they are.
+    stepped = ds[[name for name, v in ds.data_vars.items() if "step" in v.dims]]
     totals = xr.concat(
-        [ds.isel(step=[0]), ds.diff("step")],
+        [stepped.isel(step=[0]), stepped.diff("step")],
         dim="step",
         data_vars="all",
         coords="minimal",
         compat="override",
         join="exact",
     )
-    return totals.clip(min=0.0, keep_attrs=True)
+    return ds.assign(totals.clip(min=0.0, keep_attrs=True).data_vars)

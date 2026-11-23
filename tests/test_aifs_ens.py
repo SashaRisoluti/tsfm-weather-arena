@@ -136,6 +136,18 @@ def test_deaccumulate_gives_totals_per_step() -> None:
     assert list(out.step.values) == [6, 12, 18, 24]
 
 
+def test_deaccumulate_leaves_variables_without_steps_alone() -> None:
+    accumulated = xr.Dataset(
+        {"tp": ("step", [2.0, 5.0]), "model_version": ((), 2)},
+        coords={"step": [6, 12]},
+    )
+    out = aifs_ens.deaccumulate(accumulated)
+    assert out.model_version.dims == ()
+    assert out.model_version.dtype == accumulated.model_version.dtype
+    assert int(out.model_version) == 2
+    np.testing.assert_allclose(out.tp.values, [2.0, 3.0])
+
+
 def test_deaccumulate_needs_contiguous_steps_from_the_first_interval() -> None:
     gappy = xr.Dataset({"tp": ("step", [2.0, 5.0])}, coords={"step": [6, 18]})
     with pytest.raises(ValueError):
