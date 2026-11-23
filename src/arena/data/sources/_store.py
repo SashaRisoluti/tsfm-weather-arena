@@ -19,17 +19,19 @@ def open_frame(url_template: str, marker: str, time: datetime) -> xr.Dataset:
 
     Raises ``FileNotFoundError`` if the frame is absent or its upload has not
     been marked complete. A store without its chunk reads back as NaN rather
-    than failing, so the marker is checked first.
+    than failing, so the marker is checked first. Any other read error is
+    raised as it is: a frame that could not be read is not a missing frame.
     """
     url = url_template.format(time=time)
     fs, path = fsspec.core.url_to_fs(url)
-    missing = FileNotFoundError(f"no complete frame for {time:%Y-%m-%dT%H:%M}")
-    if not fs.exists(f"{path.rsplit('/', 1)[0]}/{marker}"):
-        raise missing
     try:
+        # Read, not tested for existence: that would report an error as absence.
+        fs.cat_file(f"{path.rsplit('/', 1)[0]}/{marker}")
         ds = xr.open_zarr(url, chunks=None, consolidated=True)
     except (FileNotFoundError, zarr.errors.GroupNotFoundError):
-        raise missing from None
+        raise FileNotFoundError(
+            f"no complete frame for {time:%Y-%m-%dT%H:%M}"
+        ) from None
     if "time" not in ds.dims:
         ds = ds.expand_dims("time")
     if ds.time.values[0] != np.datetime64(time):

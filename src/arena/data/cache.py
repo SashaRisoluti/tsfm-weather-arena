@@ -14,10 +14,12 @@ that exists is complete. Precipitation is stored in mm/h.
 
 import logging
 import shutil
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import aiohttp
 import numpy as np
 import xarray as xr
 from omegaconf import DictConfig
@@ -39,15 +41,20 @@ def cache_root(cfg: DictConfig) -> Path:
 
 
 def write_atomic(ds: xr.Dataset, path: Path) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    shutil.rmtree(tmp, ignore_errors=True)
+    """Write ``ds`` to a folder of its own, then rename it to ``path``.
+
+    If another writer finishes the same store first, its copy stands. A
+    killed process leaves a ``*.tmp`` folder that is never read.
+    """
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         ds.to_zarr(tmp, mode="w", zarr_format=3, consolidated=False)
-    except BaseException:
+        tmp.replace(path)
+    except BaseException as error:
         shutil.rmtree(tmp, ignore_errors=True)
-        raise
-    tmp.replace(path)
+        if not (isinstance(error, OSError) and path.exists()):
+            raise
 
 
 def _concat(parts: list[xr.Dataset], dim: str = "time") -> xr.Dataset:
@@ -136,17 +143,17 @@ def _fetch_day(
         )
     if not parts:
         return None, len(times)
-    data = _concat(parts)
-    # A step whose chunk was never uploaded reads back as NaN everywhere.
-    empty = xr.concat(
+    data = _concat(parts).reindex(time=times)
+    # A chunk that was never uploaded reads back as NaN everywhere, so a step
+    # is a gap as soon as one variable is entirely NaN.
+    gaps = xr.concat(
         [v.isnull().all(("latitude", "longitude")) for v in data.data_vars.values()],
         dim="variable",
-    ).all("variable")
-    data = data.isel(time=~empty.values)
-    if data.sizes["time"] == 0:
-        return None, len(times)
-    missing = len(times) - data.sizes["time"]
-    return data.reindex(time=times), missing
+    ).any("variable")
+    missing = int(gaps.sum())
+    if missing == len(times):
+        return None, missing
+    return data, missing
 
 
 def cache_days(
@@ -165,25 +172,33 @@ def cache_days(
     if source == "pardig":
         folder = folder / "frames"
     written = []
-    day = start
-    while day <= end:
+    for offset in range((end - start).days + 1):
+        day = start + timedelta(days=offset)
         path = folder / f"{day:%Y%m%d}.zarr"
-        if not path.exists():
+        if path.exists():
+            continue
+        try:
             data, missing = _fetch_day(cfg, source, day)
-            if data is None or (missing and not allow_gaps):
-                log.warning(
-                    "%s %s: %d steps unavailable, not cached", source, day, missing
-                )
-            else:
-                if source == "pardig":
-                    name = cfg.data.pardig.variable
-                    factor = cfg.data.pardig.rate_to_mm_per_hour
-                    data[name] = pardig.to_mm_per_hour(data[name], factor)
-                data.attrs = {"missing_frames": missing}
-                write_atomic(data.drop_encoding(), path)
-                written.append(path)
-                log.info("%s %s cached", source, day)
-        day += timedelta(days=1)
+        except (OSError, aiohttp.ClientError, TimeoutError) as error:
+            # Left for the next run: a failed read must not be kept as a gap.
+            log.warning(
+                "%s %s: read failed (%s), not cached",
+                source,
+                day,
+                type(error).__name__,
+            )
+            continue
+        if data is None or (missing and not allow_gaps):
+            log.warning("%s %s: %d steps unavailable, not cached", source, day, missing)
+            continue
+        if source == "pardig":
+            name = cfg.data.pardig.variable
+            factor = cfg.data.pardig.rate_to_mm_per_hour
+            data[name] = pardig.to_mm_per_hour(data[name], factor)
+        data.attrs = {"missing_frames": missing}
+        write_atomic(data.drop_encoding(), path)
+        written.append(path)
+        log.info("%s %s cached", source, day)
     return written
 
 

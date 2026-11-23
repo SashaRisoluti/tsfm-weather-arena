@@ -1,16 +1,20 @@
+import threading
+from collections.abc import Iterator
 from datetime import date, datetime
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 import xarray as xr
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from arena.data import cache
-from arena.data.sources import pardig
+from arena.data.sources import pardig, satweave
 
-from .conftest import ABSENT, ALL_NAN, NO_MARKER
+from .conftest import ABSENT, ALL_NAN, NO_MARKER, STAMP
 
 # Row 35 of the synthetic grid is 43.5 N, the southern edge of the Alps box.
 SOUTH_ROW = 35
@@ -86,6 +90,70 @@ def test_day_with_missing_frames_is_not_cached_silently(synthetic: DictConfig) -
     assert int(ds.precipitation.isnull().all(("latitude", "longitude")).sum()) == 3
 
 
+def test_step_with_one_band_missing_counts_as_a_gap(
+    synthetic: DictConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    day = date(2026, 1, 1)
+    lost = datetime(2026, 1, 1, 7)
+    real = satweave.open_frame
+
+    def one_band_lost(cfg: DictConfig, time: datetime) -> xr.Dataset:
+        frame = real(cfg, time)
+        if time == lost:
+            frame["mosaic_6200_nm"] = xr.full_like(frame.mosaic_6200_nm, np.nan)
+        return frame
+
+    monkeypatch.setattr(satweave, "open_frame", one_band_lost)
+    assert cache.cache_days(synthetic, "satweave", day, day) == []
+
+    written = cache.cache_days(synthetic, "satweave", day, day, allow_gaps=True)
+    ds = open_store(written[0])
+    assert ds.attrs["missing_frames"] == 1
+    assert bool(ds.mosaic_6200_nm.sel(time=lost).isnull().all())
+    # the band that did arrive is kept
+    np.testing.assert_allclose(ds.mosaic_11200_nm.sel(time=lost).values, 257.0)
+
+
+class Unreliable(SimpleHTTPRequestHandler):
+    """Serves files, answering 503 for the paths listed in ``failing``."""
+
+    failing: set[str] = set()
+
+    def do_GET(self) -> None:
+        if self.path in self.failing:
+            self.send_error(503)
+        else:
+            super().do_GET()
+
+    def log_message(self, format: str, *args: Any) -> None:
+        pass
+
+
+@pytest.fixture
+def served(remote: Path) -> Iterator[str]:
+    """Address of an HTTP server over the synthetic stores."""
+    handler = partial(Unreliable, directory=str(remote))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_port}"
+    server.shutdown()
+    server.server_close()
+    Unreliable.failing.clear()
+
+
+def test_failed_read_is_not_cached_as_a_gap(synthetic: DictConfig, served: str) -> None:
+    frames = f"{served}/satweave/frames/{STAMP}/mosaic.zarr"
+    OmegaConf.update(synthetic, "data.satweave.frame_url", frames)
+    Unreliable.failing.add("/satweave/frames/20260101T070000/success")
+    day = date(2026, 1, 1)
+    assert cache.cache_days(synthetic, "satweave", day, day, allow_gaps=True) == []
+    assert not list(cache.cache_root(synthetic).rglob("20260101*"))
+
+    Unreliable.failing.clear()
+    written = cache.cache_days(synthetic, "satweave", day, day, allow_gaps=True)
+    assert open_store(written[0]).attrs["missing_frames"] == 0
+
+
 def test_interrupted_write_leaves_no_store(
     synthetic: DictConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -103,6 +171,29 @@ def test_interrupted_write_leaves_no_store(
 
     monkeypatch.setattr(xr.Dataset, "to_zarr", real)
     assert len(cache.cache_days(synthetic, "pardig", day, day)) == 1
+
+
+def test_two_writers_of_one_store_do_not_share_a_temporary_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "store.zarr"
+    first = xr.Dataset({"v": ("x", np.arange(4.0))})
+    second = first + 10.0
+    real = xr.Dataset.to_zarr
+    targets: list[Path] = []
+
+    def overtaken(self: xr.Dataset, store: Any, *args: Any, **kwargs: Any) -> None:
+        targets.append(Path(store))
+        real(self, store, *args, **kwargs)
+        if len(targets) == 1:
+            # another writer starts and finishes while this one is writing
+            cache.write_atomic(second, path)
+
+    monkeypatch.setattr(xr.Dataset, "to_zarr", overtaken)
+    cache.write_atomic(first, path)
+    assert targets[0] != targets[1]
+    np.testing.assert_array_equal(open_store(path).v.values, second.v.values)
+    assert [p.name for p in tmp_path.iterdir()] == ["store.zarr"]
 
 
 def test_pardig_days_before_the_first_frame_are_refused(synthetic: DictConfig) -> None:
