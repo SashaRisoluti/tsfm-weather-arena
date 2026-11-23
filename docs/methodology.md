@@ -111,10 +111,13 @@ threshold may be assigned to either side.
 
 ### Splits
 
-The windows are fixed in the configuration before any model is trained; the
-code that applies them is added with the models and the evaluation. Windows
-are defined on issue times, with inclusive dates. A sample whose target would
-reach into the next window is dropped (48-hour embargo).
+The windows are fixed in the configuration before any model is trained.
+Windows are defined on issue times, with inclusive dates. A sample is kept
+only if its issue time is at least 48 hours before the end of its window, so
+no target reaches into the next window (embargo). Tests check that the
+windows of each family are ordered and disjoint, that the test window
+overlaps no training or validation window, and that no kept sample has a
+target outside its window.
 
 | Models | Training | Validation | Test |
 |---|---|---|---|
@@ -138,3 +141,78 @@ explicitly allowed, in which case the missing steps are counted. A step is
 missing as soon as one of its variables has no data. A read that fails is
 never recorded as a gap: the day or run is left for the next run of the
 command.
+
+## Alignment and covariates
+
+### Common grid and regridding
+
+All features live on the 0.1° grid of the target, 41 × 81 points over the
+region. Only the forecasts need remapping. Their 0.25° totals are remapped
+conservatively: each 0.1° cell takes the mean of the 0.25° cells it overlaps,
+weighted by overlap area on the sphere. On regular grids the weights are a
+product of a longitude factor (overlap in degrees) and a latitude factor
+(overlap in sine of latitude), computed in `src/arena/data/grid.py`. Members
+are remapped before ensemble statistics are taken, because quantiles do not
+commute with averaging. The general regridding package `xesmf` was not used:
+its ESMF backend installs only through conda.
+
+An independent check splits every 0.25° cell into 50 × 50 sub-cells and
+integrates precipitation times area directly. Over all 51 members and 10
+steps of one run the two integrals agree to a relative 3 × 10⁻¹⁰
+(notebook 02).
+
+### Six-hour totals
+
+In the short-range regime the target is a 6-hour total ending at 00, 06, 12
+or 18 UTC, matching the forecast steps. It is the sum of the 24 frames at
+times *s* with *T* − 6 h < *s* ≤ *T*, each standing for 15 minutes. A window
+with any frame missing is missing.
+
+### What is visible at an issue time
+
+| Input | Usable at issue time *t* |
+|---|---|
+| Forecast run | newest run started at or before *t* − 12 h |
+| Satellite frame | frames up to *t* − 60 min (measured latency about an hour) |
+| Target history | frames up to *t* (hindcast: they are published 2 to 8 h later); up to *t* − 90 min in the sensitivity run |
+
+Lead *L* of a forecast issued at *t* is read from step *t* + *L* − *r* of
+run *r*. Runs at 00 and 12 UTC are archived to 60 h, so short-range issue
+times are 00 and 12 UTC: an issue at 06 or 18 UTC would need steps to 66 h.
+Tests sweep issue times and check that no join returns data from after its
+delay (`tests/test_align.py`).
+
+### Feature providers
+
+Covariates come from feature providers (`src/arena/physics/base.py`), each
+with a name, the input variables it needs, and a flag for features known
+ahead of the issue time. A registry selects providers by name, and
+`covariates` stacks their outputs along a `feature` dimension with that
+flag. Models will see only this stack, so a new family of features is added by
+registering a provider (and importing its module, or listing it among the
+built-in ones); a test registers one at run time and checks that it reaches
+the stack. Provider names must be unique.
+
+| Provider | Features | Known ahead |
+|---|---|---|
+| `radiative` | 11.2 µm and 6.2 µm temperatures, their difference, change of the 11.2 µm temperature over the previous hour | no |
+| `solar` | cosine of the solar zenith angle, day-of-year and UTC-hour harmonics | yes |
+| `aifs_ens` | ensemble mean, 10, 50 and 90 % quantiles and spread of 6-hour `tp` | yes |
+| `aifs_ens_cp` | convective share of the ensemble-mean total (0 below 0.1 mm) | yes |
+
+The hourly change uses the current and the previous frame only, and is
+missing across a gap. The solar zenith angle follows the NOAA solar position
+formulas. `aifs_ens_cp` needs `cp`, which only model version 2 produces, so it
+is left out of the default set of models trained on version 1 forecasts.
+
+### Satellite cooling and rain onsets
+
+Notebook 02 correlates the hourly cooling rate with rain onsets (an hour
+with at least 1 mm/h after two hours below 0.1 mm/h) over June–August 2025.
+In every stratum the correlation is −0.06 to −0.11 in the onset hour and the
+hour before, weak two hours before, and indistinguishable from zero from
+three hours on. The target at time *s* is itself estimated from satellite
+frames between *s* − 120 min and *s* + 90 min, so the whole signal lies where
+the covariates and the target share inputs. Any skill the satellite
+covariates add at short leads is therefore judged together with the
+90-minute sensitivity run.

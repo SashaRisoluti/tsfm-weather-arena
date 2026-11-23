@@ -28,6 +28,10 @@ The data layer is in place: tested readers for the three sources, a
 resumable regional cache, an incremental archive of forecast runs, and a
 first look at the data in
 [notebooks/01_data_exploration.ipynb](notebooks/01_data_exploration.ipynb).
+On top of it: a common grid with conservative regridding, joins that respect
+a stated publication delay for each input, split windows with an embargo, and
+covariate providers for satellite, solar and forecast features, examined in
+[notebooks/02_alignment_and_physical_covariates.ipynb](notebooks/02_alignment_and_physical_covariates.ipynb).
 Units, model versions, splits and known caveats of the data are in
 [docs/methodology.md](docs/methodology.md).
 
@@ -59,13 +63,13 @@ uv run arena archive update                                            # runs st
 ```
 
 The satellite and forecast files are global, so far more is transferred than
-is kept. Measured on a 15 MB/s connection:
+is kept. Measured on connections between about 2 and 15 MB/s:
 
 | Command | Transfer | Time | Kept |
 |---|---|---|---|
 | `data pardig-archive` | 0.3 GB | under a minute | 0.3 GB |
 | `data days pardig`, per day | 0.1 GB | 30 s | 0.1 MB |
-| `data days satweave`, per day | 0.5 GB | 30 s | 0.5 MB |
+| `data days satweave`, per day | 0.5 GB | 30 s to 2 min | 0.5 MB |
 | `archive backfill`, per run | 0.5 to 0.9 GB | 40 to 60 s | 1 MB |
 
 A full back-fill moves about 1 TB and takes most of a day.
