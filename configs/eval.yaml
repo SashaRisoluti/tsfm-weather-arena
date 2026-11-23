@@ -3,7 +3,7 @@
 # Fixed evaluation pixels: the grid is cut into blocks of block_cells x
 # block_cells; a share of the blocks, drawn once with the seed, is held out.
 # Evaluation pixels come from held-out blocks only, training pixels from the
-# others, so neighbouring cells never sit on both sides.
+# others; pixels on a block edge can still border a training block.
 pixels:
   block_cells: 5
   eval_fraction: 0.25

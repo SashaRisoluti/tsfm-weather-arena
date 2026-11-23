@@ -32,10 +32,11 @@ On top of it: a common grid with conservative regridding, joins that respect
 a stated publication delay for each input, split windows with an embargo, and
 covariate providers for satellite, solar and forecast features, examined in
 [notebooks/02_alignment_and_physical_covariates.ipynb](notebooks/02_alignment_and_physical_covariates.ipynb).
-The evaluation framework scores every model on the same 19 quantile levels
-against persistence, climatology, an extrapolation nowcast and the AIFS
-ensemble, on a fixed set of held-out pixels (`arena eval smoke` runs a quick
-check of the baselines).
+The evaluation framework puts every model on the same 19 quantile levels and
+scores it on a fixed set of held-out pixels. Baselines are persistence,
+climatology and an extrapolation nowcast; stored AIFS ensemble forecasts can
+be served as a reference model. `arena eval smoke` runs a quick check of the
+baselines.
 Units, model versions, splits and known caveats of the data are in
 [docs/methodology.md](docs/methodology.md).
 

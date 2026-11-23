@@ -237,7 +237,7 @@ quantiles equal.
 | CRPS skill | 1 − CRPS / CRPS of climatology |
 | MAE | absolute error of the median |
 | CSI, POD, FAR | event forecast where the median reaches the threshold; from hits, misses and false alarms summed over all samples |
-| Brier score, reliability | event probability from the forecast CDF, linear between quantiles and flat outside them (at most 0.95, at least 0.05); reliability in 10 bins |
+| Brier score, reliability | probability of reaching the threshold, from the forecast CDF, linear between quantiles and flat outside them (at most 0.95, at least 0.05); reliability in 10 bins |
 | Coverage | share of observations inside the 50 % and 90 % central intervals |
 | PIT | forecast CDF at the observation; a dry observation gets a value drawn uniformly between 0 and the forecast's probability of zero |
 | FSS | fractions skill score of two fields for a threshold and a square window |
@@ -245,16 +245,29 @@ quantiles equal.
 Thresholds are 0.1, 1 and 5 mm/h for the 15-minute regime and the same rates
 over 6 hours (0.6, 6 and 30 mm) for 6-hour totals. Every score has a unit
 test against hand-computed values; the CRPS also against the `scoringrules`
-package. Because most cell-hours are dry, coverage and Brier scores are high
-for every model and are read together with the event scores.
+package. Because most cell-hours are dry, coverage is high and Brier scores
+are low for every model, so both are read together with the event scores.
+The flat tails cap event probabilities at 0.05 and 0.95, which costs point
+forecasts a little in the Brier score. On a spread distribution the CRPS
+from 19 quantiles runs a few per cent above the exact value; for a point
+forecast it is exact. A sample is scored only where both the observation and
+every quantile of the forecast exist, and all models are scored on the same
+samples.
+
+Implemented and unit-tested, but not yet used by a scoring run: the exact
+ensemble CRPS, PIT, reliability, FSS, the mapping of other quantile levels
+and the AIFS reference. The scoring run for 6-hour totals comes with the
+first models scored in that regime.
 
 ### Evaluation pixels
 
 The grid is cut into blocks of 5 × 5 cells and a quarter of the blocks,
 drawn once with a fixed seed, is held out. The 200 evaluation pixels are 40
 per stratum drawn from held-out blocks (`configs/pixels/alps_eval.csv`);
-models trained on pixels use cells of the other blocks only, so a training
-cell is never the neighbour of an evaluation cell inside one block.
+models trained on pixels will use cells of the other blocks only. This keeps
+most training cells away from evaluation cells, but not all: an evaluation
+pixel on a block edge can border a training block (about half of the 200
+do). Drawing from block interiors would leave too few coast cells.
 
 ### Baselines and reference
 
@@ -262,7 +275,7 @@ cell is never the neighbour of an evaluation cell inside one block.
 |---|---|
 | Persistence | the last visible value, for every lead |
 | Climatology | quantiles of the values at the same cell, calendar month and UTC hour of the valid time, fitted on 2016–2024 |
-| Extrapolation | the last frame shifted along one motion vector, found by phase correlation of the frames one hour apart; motion faster than 120 km/h is treated as noise; no growth or decay |
+| Extrapolation | the last frame shifted along one motion vector: the shift, no faster than 120 km/h, that maximises the cross-correlation of the frames one hour apart; no growth or decay |
 | AIFS ensemble | quantiles of the 51 members of the newest usable run, remapped conservatively to the target grid |
 
 The extrapolation baseline is simpler than a full optical-flow nowcast (one
@@ -270,8 +283,13 @@ motion vector, whole-cell shifts), because the standard package for it builds
 only from source. It sets a floor, not the state of the art.
 
 A smoke run on three validation days (15–17 July 2025, hourly issues,
-200 pixels) checks the whole chain: `arena eval smoke` writes
-`results/summary/smoke_regime_a.csv`. On those mostly dry days persistence
-beats climatology only at 15 minutes, and extrapolation beats persistence on
-CSI from 30 minutes but not on CRPS: a displaced point forecast is penalised
-twice, once where rain is forecast and once where it falls.
+200 pixels, 14,400 samples per lead) checks the whole chain:
+`arena eval smoke` writes `results/summary/smoke_regime_a.csv`. The days are
+mostly dry and heavy-rain events are few, so the numbers test the code, not
+the models. On CRPS, persistence
+beats climatology only at 15 minutes; extrapolation beats persistence at 30
+and 60 minutes but not at 15, 120 or 180. On CSI at 0.1 and 1 mm/h,
+extrapolation is ahead of persistence at every lead. The
+target looks up to 90 minutes ahead, which favours persistence at the
+shortest leads; the sensitivity run (`lag_minutes` in the runner) removes
+that advantage.
