@@ -324,7 +324,8 @@ The context is the last values of the target visible at the issue time
   edge cell); only the centre is scored;
 - **covariates** (regime A only): the `radiative` features as past-only
   covariates, each 15-minute step taking the newest hourly frame published by
-  then (one hour after its time, at most one hour old), and the `solar`
+  then (frames are published one hour after their time; a step whose newest
+  frame was published more than an hour earlier is left missing), and the `solar`
   features as known-future covariates over context and horizon;
 - **log1p**: the model sees log(1 + rate) and its quantiles are mapped back
   with exp − 1 (quantiles commute with a monotone transform);
@@ -334,7 +335,12 @@ Run names and settings are in `configs/tsfm.yaml`; `arena run zero-shot
 --regime a|b --split smoke|test` scores every run and the baselines on the
 same issues and pixels. Scores are saved per model and issue day under
 `results/parts/` (not committed), so a run that stops resumes where it
-left off; the summary is rebuilt from all parts in
+left off. Each part is written under a temporary name and renamed when
+complete, and each model folder records the settings that produced it
+(`settings.json`); a run with other settings refuses that folder instead of
+mixing old and new parts. The summary covers only the configured models
+that have every issue day scored, and fails if they were scored on
+different numbers of samples. It is written to
 `results/summary/zero_shot_<regime>_<split>.csv`. The models run on a CUDA
 GPU when one is present; scores from a GPU and a CPU differ only by
 floating-point rounding (about 1e-7 relative).
