@@ -255,9 +255,7 @@ every quantile of the forecast exist, and all models are scored on the same
 samples.
 
 Implemented and unit-tested, but not yet used by a scoring run: the exact
-ensemble CRPS, PIT, reliability, FSS, the mapping of other quantile levels
-and the AIFS reference. The scoring run for 6-hour totals comes with the
-first models scored in that regime.
+ensemble CRPS, PIT, reliability, FSS and the AIFS reference.
 
 ### Evaluation pixels
 
@@ -293,3 +291,63 @@ extrapolation is ahead of persistence at every lead. The
 target looks up to 90 minutes ahead, which favours persistence at the
 shortest leads; the sensitivity run (`lag_minutes` in the runner) removes
 that advantage.
+
+## Zero-shot foundation models
+
+### Models
+
+| Model | Weights | Quantiles | Covariates | Runs in |
+|---|---|---|---|---|
+| TimesFM 3 | `google/timesfm-3.0-pytorch`, about 300M parameters | 0.1 to 0.9 | past-only and known-future | the project environment (`uv sync --group tsfm`) |
+| Timestral | `mistralai/Timestral-{5M,28M,123M,209M}` | 0.01 to 0.99 | past-only and known-future | its own environment, `external/timestral` |
+
+Timestral is installed from a pinned commit of its repository and runs in a
+separate process; the two exchange `.npz` files (`external/timestral/bridge.py`).
+Neither model is trained here. Both forecasters share one wrapper
+(`src/arena/models/tsfm/base.py`) that builds the input series, calls the
+model and maps its quantiles to the 19 common levels, so the only
+model-specific code is the call itself. TimesFM 3 is asked for non-negative
+output; Timestral's quantiles are clipped at zero by the common mapping.
+
+### Inputs and variants
+
+| Regime | Target | Context | Leads | Issues |
+|---|---|---|---|---|
+| A | 15-minute rate, mm/h | 672 steps (7 days) | 15 min to 6 h, every 15 min | smoke: every 3 h on 15–17 July 2025 |
+| B | 6-hour total, mm | 480 steps (120 days) | 6 h to 48 h, every 6 h | smoke: 00 and 12 UTC, July–August 2025 |
+
+The context is the last values of the target visible at the issue time
+(see above). Each run changes one thing against the plain run:
+
+- **neighbours**: the pixel and its eight neighbouring cells as nine
+  variates of one multivariate series (cells beyond the grid edge repeat the
+  edge cell); only the centre is scored;
+- **covariates** (regime A only): the `radiative` features as past-only
+  covariates, each 15-minute step taking the newest hourly frame published by
+  then (one hour after its time, at most one hour old), and the `solar`
+  features as known-future covariates over context and horizon;
+- **log1p**: the model sees log(1 + rate) and its quantiles are mapped back
+  with exp − 1 (quantiles commute with a monotone transform);
+- **size** (Timestral only): the 5M, 28M and 123M checkpoints beside 209M.
+
+Run names and settings are in `configs/tsfm.yaml`; `arena run zero-shot
+--regime a|b --split smoke|test` scores every run and the baselines on the
+same issues and pixels. Scores are saved per model and issue day under
+`results/parts/` (not committed), so a run that stops resumes where it
+left off; the summary is rebuilt from all parts in
+`results/summary/zero_shot_<regime>_<split>.csv`. The models run on a CUDA
+GPU when one is present; scores from a GPU and a CPU differ only by
+floating-point rounding (about 1e-7 relative).
+
+### Smoke results and caveats
+
+The smoke run is read in `notebooks/03_zero_shot_benchmark.ipynb`. It uses
+validation days, not the test window, and has no confidence intervals yet;
+regime A covers only three mostly dry days. Two things in it need care:
+
+- most samples are dry and a forecast whose quantiles are all zero counts a
+  dry observation as covered, so 90 % coverage near 1 says little about
+  calibration on wet samples;
+- the foundation models lead on CRPS in the first hour but trail
+  persistence and extrapolation on CSI from 45 minutes on, because their
+  medians drift towards dry. CRPS and event scores are read together.

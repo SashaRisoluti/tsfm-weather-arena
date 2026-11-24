@@ -37,6 +37,10 @@ scores it on a fixed set of held-out pixels. Baselines are persistence,
 climatology and an extrapolation nowcast; stored AIFS ensemble forecasts can
 be served as a reference model. `arena eval smoke` runs a quick check of the
 baselines.
+Two time-series foundation models, TimesFM 3 and Timestral, are scored
+zero-shot in both regimes against these baselines; a first smoke run on
+validation days is read in
+[notebooks/03_zero_shot_benchmark.ipynb](notebooks/03_zero_shot_benchmark.ipynb).
 Units, model versions, splits and known caveats of the data are in
 [docs/methodology.md](docs/methodology.md).
 
@@ -127,6 +131,17 @@ and model weights keep their own licences.
   Medium-Range Weather Forecasts, CC BY 4.0.
 - **Elevation.** Copernicus DEM GLO-90, accessed through the Open-Meteo
   elevation API.
+
+Model weights are downloaded from Hugging Face at run time and are not
+redistributed here:
+
+- **TimesFM 3.** Google Research. The `timesfm` package is Apache 2.0; the
+  weights `google/timesfm-3.0-pytorch` are under the TimesFM Non-Commercial
+  License.
+- **Timestral.** Mistral AI. The inference code is Apache 2.0; the weights
+  `mistralai/Timestral-*` are under a modified MIT licence that grants no rights to companies above a
+  monthly revenue threshold; read it before any use beyond personal
+  research.
 
 ## Roadmap
 
