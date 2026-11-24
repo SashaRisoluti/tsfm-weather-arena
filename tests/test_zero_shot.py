@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -8,7 +9,14 @@ import xarray as xr
 from arena.config import load_config
 from arena.data.sampling import split_of
 from arena.eval.quantiles import LEVELS
-from arena.eval.zero_shot import issue_times, model_parts
+from arena.eval.zero_shot import (
+    claim,
+    issue_times,
+    model_parts,
+    run_zero_shot,
+    summarise_runs,
+    write_part,
+)
 from arena.models.baselines.persistence import Persistence
 
 CFG = load_config()
@@ -127,3 +135,85 @@ def test_covariates_are_built_per_issue_and_context_ends_at_the_visible_time() -
         )
     )
     assert built == []
+
+
+DAYS = [datetime(2025, 7, 15).date(), datetime(2025, 7, 16).date()]
+
+
+def write_parts(folder, model: str, days) -> None:  # type: ignore[no-untyped-def]
+    issues = [
+        datetime.combine(day, datetime.min.time()) + timedelta(hours=6) for day in days
+    ]
+    parts = model_parts(
+        rain(96), Persistence(), issues, [timedelta(minutes=15)], 8, [1.0], PIXELS
+    )
+    (folder / model).mkdir(parents=True, exist_ok=True)
+    for day, part in parts:
+        part.insert(0, "model", model)
+        part.to_csv(folder / model / f"{day:%Y%m%d}.csv", index=False)
+
+
+def summary_config(tmp_path):  # type: ignore[no-untyped-def]
+    cfg = load_config()
+    cfg.tsfm.parts_dir = (tmp_path / "parts").as_posix()
+    cfg.tsfm.summary = (tmp_path / "{regime}_{label}.csv").as_posix()
+    return cfg, tmp_path / "parts" / "a" / "smoke"
+
+
+def test_summary_reads_only_the_given_models_and_complete_days(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    cfg, folder = summary_config(tmp_path)
+    write_parts(folder, "climatology", DAYS)
+    write_parts(folder, "persistence", DAYS)
+    write_parts(folder, "removed_run", DAYS)
+    write_parts(folder, "half_done", DAYS[:1])
+    write_parts(folder, "persistence", [datetime(2025, 7, 17).date()])
+    names = ["climatology", "persistence", "half_done"]
+    table = pd.read_csv(summarise_runs(cfg, "a", "smoke", names, DAYS))
+    assert sorted(table.model) == ["climatology", "persistence"]
+    assert set(table.samples) == {2 * len(PIXELS)}
+
+
+def test_summary_refuses_models_scored_on_different_samples(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    cfg, folder = summary_config(tmp_path)
+    write_parts(folder, "climatology", DAYS)
+    write_parts(folder, "persistence", DAYS)
+    path = folder / "persistence" / "20250716.csv"
+    part = pd.read_csv(path)
+    part["samples"] -= 1
+    part.to_csv(path, index=False)
+    with pytest.raises(ValueError, match="samples"):
+        summarise_runs(cfg, "a", "smoke", ["climatology", "persistence"], DAYS)
+
+
+def test_summary_refuses_parts_with_missing_scores(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    cfg, folder = summary_config(tmp_path)
+    write_parts(folder, "climatology", DAYS)
+    path = folder / "climatology" / "20250716.csv"
+    part = pd.read_csv(path)
+    part["brier_2_sum"] = 0.0  # a threshold added after the first day was scored
+    part.to_csv(path, index=False)
+    with pytest.raises(ValueError, match="missing"):
+        summarise_runs(cfg, "a", "smoke", ["climatology"], DAYS)
+
+
+def test_parts_of_other_settings_are_refused(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    claim(tmp_path, {"context_steps": 672})
+    claim(tmp_path, {"context_steps": 672})
+    with pytest.raises(ValueError, match="settings"):
+        claim(tmp_path, {"context_steps": 1344})
+
+
+def test_a_part_cut_off_while_writing_leaves_no_file(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    def cut_off(self, path, **kwargs):  # type: ignore[no-untyped-def]
+        Path(path).write_text("model,samp")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(pd.DataFrame, "to_csv", cut_off)
+    with pytest.raises(KeyboardInterrupt):
+        write_part(pd.DataFrame({"a": [1]}), tmp_path / "20250715.csv")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_unknown_run_names_are_refused() -> None:
+    with pytest.raises(ValueError, match="timesfm_3"):
+        run_zero_shot(CFG, "a", "smoke", ["timesfm_3"])

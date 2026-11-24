@@ -5,6 +5,9 @@ Scores are saved as parts, one file per model and issue day, under
 again and skips the days already done; the summary is built from all parts.
 """
 
+import hashlib
+import json
+import logging
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -15,7 +18,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import xarray as xr
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from arena.data import cache
 from arena.data.align import past_as_of, six_hour_totals
@@ -30,6 +33,7 @@ from arena.paths import project_path
 from arena.physics.base import covariates
 
 Covariates = Callable[[datetime], xr.DataArray]
+log = logging.getLogger(__name__)
 _STEP = {"a": timedelta(minutes=15), "b": timedelta(hours=6)}
 
 
@@ -182,6 +186,9 @@ def run_zero_shot(
     from arena.models.tsfm.base import TsfmForecaster
 
     settings = cfg.tsfm[f"regime_{regime}"]
+    unknown = set(runs or []) - {str(r.name) for r in settings.runs}
+    if unknown:
+        raise ValueError(f"unknown runs for regime {regime}: {sorted(unknown)}")
     issues = issue_times(cfg, regime, split)
     if not issues:
         raise ValueError(f"no {split} issue times for regime {regime}")
@@ -194,6 +201,14 @@ def run_zero_shot(
     thresholds = list(cfg.eval.thresholds[f"regime_{regime}"])
     pixel_file = str(cfg.eval.pixels.file).format(region=cfg.region.name)
     pixels = pd.read_csv(project_path(pixel_file))
+    shared = {
+        "context_steps": context_steps,
+        "leads_minutes": [lead // timedelta(minutes=1) for lead in leads],
+        "thresholds": thresholds,
+        "pixels": hashlib.sha256(project_path(pixel_file).read_bytes()).hexdigest(),
+        "issue_hours": sorted({i.hour for i in issues}),
+        "train": list(cfg.data.splits.tsfm.train),
+    }
 
     rain = cache.open_cached(cfg, "pardig").precipitation
     start = issues[0] - step * (context_steps + 1) - timedelta(hours=6)
@@ -223,6 +238,7 @@ def run_zero_shot(
             names = list(models) if run is None else [str(run.name)]
             for name in names:
                 done = folder / name
+                claim(done, {**shared, **_run_settings(cfg, regime, name, run)})
                 todo = [i for i in issues if not (done / f"{i:%Y%m%d}.csv").exists()]
                 if not todo:
                     continue
@@ -235,7 +251,6 @@ def run_zero_shot(
                     use_covariates=bool(run.get("covariates", False)),
                     transform=str(run.get("transform", "none")),
                 )
-                done.mkdir(parents=True, exist_ok=True)
                 for day, part in model_parts(
                     target,
                     model,
@@ -247,14 +262,85 @@ def run_zero_shot(
                     covariates_for,
                 ):
                     part.insert(0, "model", name)
-                    part.to_csv(done / f"{day:%Y%m%d}.csv", index=False)
-    return summarise_runs(cfg, regime, split)
+                    write_part(part, done / f"{day:%Y%m%d}.csv")
+    names = [*models, *(str(r.name) for r in settings.runs)]
+    days = sorted({i.date() for i in issues})
+    return summarise_runs(cfg, regime, split, names, days)
 
 
-def summarise_runs(cfg: DictConfig, regime: str, split: str) -> Path:
-    """Summary per model and lead from every saved part of a run."""
+def _run_settings(cfg: DictConfig, regime: str, name: str, run: Any) -> dict[str, Any]:
+    if run is None:
+        return {"model": name}
+    settings = {
+        "run": OmegaConf.to_container(run),
+        "checkpoint": str(cfg.tsfm.checkpoints[run.model]),
+    }
+    if run.get("covariates", False):
+        regime_a = cfg.tsfm.regime_a
+        settings["satellite_lag_minutes"] = int(regime_a.satellite_lag_minutes)
+        settings["covariates"] = list(regime_a.covariates)
+    return settings
+
+
+def claim(folder: Path, settings: dict[str, Any]) -> None:
+    """Tie a folder of parts to the settings that produced them.
+
+    Parts made with other settings would be summed silently with new ones,
+    so a mismatch is refused.
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "settings.json"
+    text = json.dumps(settings, sort_keys=True, indent=1)
+    if not path.exists():
+        path.write_text(text, encoding="utf-8")
+    elif json.loads(path.read_text(encoding="utf-8")) != json.loads(text):
+        raise ValueError(
+            f"{folder} holds parts made with other settings; "
+            "move it away to score again"
+        )
+
+
+def write_part(part: pd.DataFrame, path: Path) -> None:
+    """Write a part under a temporary name first: a run cut off mid-write
+    must not leave a file that resuming would take as done."""
+    tmp = path.with_name(f"{path.name}.tmp")
+    try:
+        part.to_csv(tmp, index=False)
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def summarise_runs(
+    cfg: DictConfig,
+    regime: str,
+    split: str,
+    names: Sequence[str],
+    days: Sequence[date],
+) -> Path:
+    """Summary per model and lead over the given issue days.
+
+    A model is included only when every day is scored; all included models
+    must have been scored on the same number of samples.
+    """
     folder = project_path(str(cfg.tsfm.parts_dir)) / regime / split
-    parts = pd.concat([pd.read_csv(f) for f in sorted(folder.glob("*/*.csv"))])
+    frames = []
+    for name in names:
+        files = [folder / name / f"{day:%Y%m%d}.csv" for day in days]
+        done = sum(f.exists() for f in files)
+        if done < len(files):
+            if done:
+                log.warning(
+                    "%s: %d of %d days scored, left out", name, done, len(files)
+                )
+            continue
+        frames += [pd.read_csv(f) for f in files]
+    parts = pd.concat(frames)
+    if parts.isna().any().any():
+        raise ValueError("parts with missing scores: settings changed between days")
+    samples = parts.groupby(["lead_minutes", "model"]).samples.sum().unstack()
+    if (samples.nunique(axis=1) > 1).any():
+        raise ValueError("models were scored on different numbers of samples")
     table = summarise(parts, by=("model", "lead_minutes")).reset_index()
     reference = table[table.model == "climatology"].set_index("lead_minutes").crps
     table["crps_skill"] = 1 - table.crps / table.lead_minutes.map(reference)
