@@ -34,7 +34,10 @@ def main() -> None:
                 }
                 with torch.inference_mode():
                     forecast = model.forecast(
-                        request["context"], int(request["horizon"]), **kwargs
+                        request["context"],
+                        int(request["horizon"]),
+                        symmetric_averaging=True,
+                        **kwargs,
                     )
             np.savez(reply_path, quantiles=forecast.quantiles.cpu().numpy())
             print("done", flush=True)

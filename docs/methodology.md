@@ -306,7 +306,9 @@ separate process; the two exchange `.npz` files (`external/timestral/bridge.py`)
 Neither model is trained here. Both forecasters share one wrapper
 (`src/arena/models/tsfm/base.py`) that builds the input series, calls the
 model and maps its quantiles to the 19 common levels, so the only
-model-specific code is the call itself. TimesFM 3 is asked for non-negative
+model-specific code is the call itself. Both average each forecast with the
+mirrored forecast of the negated context (Timestral's default, switched on
+for TimesFM 3 so the two match). TimesFM 3 is asked for non-negative
 output; Timestral's quantiles are clipped at zero by the common mapping.
 
 ### Inputs and variants

@@ -3,7 +3,8 @@
 Weights ``google/timesfm-3.0-pytorch`` are under the TimesFM Non-Commercial
 License; the package ``timesfm`` is Apache 2.0. The model forecasts the
 median and the levels 0.1 to 0.9, and accepts covariates known over the
-context only or over the context and the horizon.
+context only or over the context and the horizon. Forecasts are averaged
+with the mirrored forecast of the negated context, as in Timestral.
 """
 
 from collections.abc import Sequence
@@ -45,6 +46,8 @@ class TimesFM3Backend:
             past_only_covariates=None if past is None else list(past),
             past_future_covariates=None if known is None else list(known),
             return_quantiles=True,
+            # Off by default here, on in Timestral: on for both, so they match.
+            use_symmetric_averaging=True,
             make_positive=True,
         )
         quantiles = np.stack([np.asarray(out.quantiles) for out in outputs])

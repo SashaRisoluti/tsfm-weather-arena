@@ -168,6 +168,8 @@ def test_timesfm3_backend_shapes_and_arguments() -> None:
     assert q.shape == (2, 3, 4, 9) and list(levels) == FakeTimesFM3.config.quantiles
     np.testing.assert_allclose(q[1, 2, 0, 4], context[1, 2, -1])
     assert fake.kwargs["return_quantiles"] is True
+    # averaged with the mirrored forecast, as Timestral does by default
+    assert fake.kwargs["use_symmetric_averaging"] is True
     univariate = np.arange(10, dtype="float32").reshape(2, 1, 5)
     past = np.zeros((2, 2, 5), "float32")
     q, _ = backend.forecast(univariate, past, None, horizon=4)
